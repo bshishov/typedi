@@ -2,6 +2,7 @@
 
 ![Build](https://github.com/bshishov/typedi/workflows/Build/badge.svg)
 [![PyPI version](https://badge.fury.io/py/typedi.svg)](https://badge.fury.io/py/typedi)
+[![Coverage Status](https://coveralls.io/repos/github/bshishov/typedi/badge.svg?branch=master)](https://coveralls.io/github/bshishov/typedi?branch=master)
 
 Simple typed dependency injection container.
 
