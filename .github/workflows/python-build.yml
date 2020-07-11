@@ -27,6 +27,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install tox
+          pip install coveralls
       - name: Test
         # Running tox with current python (specified from matrix)
-        run: tox -e py
+        run: |
+          tox -e clean -e py -e report
+      - name: Coveralls
+          run: coveralls
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            COVERALLS_FLAG_NAME: ${{ matrix.python-version }}
+            COVERALLS_PARALLEL: true
+
+  coveralls:
+    name: Finish Coveralls
+    needs: test
+    runs-on: ubuntu-latest
+    container: python:3-slim
+    steps:
+      - name: Finished
+        run: |
+          pip3 install --upgrade coveralls
+          coveralls --finish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,7 @@
 # typedi
 
 ![Build](https://github.com/bshishov/typedi/workflows/Build/badge.svg)
+[![PyPI version](https://badge.fury.io/py/typedi.svg)](https://badge.fury.io/py/typedi)
 
 Simple typed dependency injection container.
 
