@@ -3,14 +3,9 @@ from setuptools import setup
 with open('README.md', 'r') as f:
     long_description = f.read()
 
-pkg_vars = {}
-
-with open("typedi.py") as fp:
-    exec(fp.read(), pkg_vars)
-
 setup(
     name='typedi',
-    version=pkg_vars['__version__'],
+    version='0.1',
     description='Python typed object schema validation',
     url='https://github.com/bshishov/typedi',
     author='Boris Shishov',
@@ -24,10 +19,11 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Intended Audience :: Developers',
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Operating System :: OS Independent',
         'Topic :: Software Development :: Libraries'
     ],
-    python_requires='>=3.7'
+    python_requires='>=3.6'
 )
