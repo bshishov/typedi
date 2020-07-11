@@ -7,9 +7,6 @@ __all__ = [
     'ProviderSpec',
     'ClassSpec'
 ]
-__version__ = '0.1'
-__author__ = 'Boris Shishov'
-
 
 T = TypeVar('T')
 

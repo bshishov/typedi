@@ -5,7 +5,7 @@ with open('README.md', 'r') as f:
 
 setup(
     name='typedi',
-    version='0.1',
+    version='0.1.0',
     description='Python typed object schema validation',
     url='https://github.com/bshishov/typedi',
     author='Boris Shishov',
