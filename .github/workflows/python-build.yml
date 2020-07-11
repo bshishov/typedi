@@ -33,11 +33,11 @@ jobs:
         run: |
           tox -e clean -e py -e report
       - name: Coveralls
-          run: coveralls
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            COVERALLS_FLAG_NAME: ${{ matrix.python-version }}
-            COVERALLS_PARALLEL: true
+        run: coveralls
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COVERALLS_FLAG_NAME: ${{ matrix.python-version }}
+          COVERALLS_PARALLEL: true
 
   coveralls:
     name: Finish Coveralls
