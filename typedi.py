@@ -1,4 +1,5 @@
-from typing import Optional, Type, Callable, Dict, Any, get_type_hints, TypeVar, Generic
+from typing import Optional, Type, Callable, Dict, Any, get_type_hints, TypeVar, Generic, overload
+import inspect
 
 __all__ = [
     'Container',
@@ -14,7 +15,7 @@ T = TypeVar('T')
 class Container:
     def __init__(self, parent: Optional['Container'] = None):
         self.parent = parent
-        self._registry: Dict[Type, 'Spec'] = {}
+        self._storage: Dict[Type, 'Spec'] = {}
 
         # Register self, so that client code can access the container
         # that has provided dependencies (if requested)
@@ -25,27 +26,34 @@ class Container:
 
     def get_spec(self, key: Type[T]) -> 'Spec[T]':
         try:
-            return self._registry[key]
+            return self._storage[key]
         except KeyError as err:
             if self.parent is not None:
                 return self.parent.get_spec(key)
             raise err
 
-    def bind_to_class(self, key: Type[T], cls: Type[T]):
-        if not issubclass(cls, key):
-            raise TypeError(f'Instance should be of type {key}')
-        self._registry[key] = ClassSpec(cls)
-
-    def register_class(self, cls: Type[T]):
-        self._registry[cls] = ClassSpec(cls)
-
-    def bind_to_instance(self, key: Type[T], instance: T):
+    def register_instance(self, key: Type[T], instance: T):
         if not isinstance(instance, key):
             raise TypeError(f'Instance should be of type {key}')
-        self._registry[key] = InstanceSpec(instance)
+        self._storage[key] = InstanceSpec(instance)
 
-    def bind_to_factory(self, key: Type[T], factory: Callable[..., T]):
-        self._registry[key] = FactorySpec(factory)
+    def register_class(self, key: Type[T], cls: Optional[Type[T]] = None):
+        cls = cls or key
+        if not issubclass(cls, key):
+            raise TypeError(f'Instance should be of type {key}')
+        self._storage[key] = ClassSpec(cls)
+
+    def register_singleton_class(self, key: Type[T], cls: Optional[Type[T]] = None):
+        cls = cls or key
+        if not issubclass(cls, key):
+            raise TypeError(f'Instance should be of type {key}')
+        self._storage[key] = SingletonClassSpec(cls)
+
+    def register_factory(self, key: Type[T], factory: Callable[..., T]):
+        self._storage[key] = FactorySpec(factory)
+
+    def register_singleton_factory(self, key: Type[T], factory: Callable[..., T]):
+        self._storage[key] = SingletonFactorySpec(factory)
 
     def make_child_container(self):
         return Container(self)
@@ -84,6 +92,8 @@ class FactorySpec(Spec[T]):
 
 class ClassSpec(Spec[T]):
     def __init__(self, cls: Type[T]):
+        if not inspect.isclass(cls):
+            raise TypeError(f'Expected class type, got {cls} instead')
         self._class = cls
         try:
             self._annotations = get_type_hints(self._class.__init__)
@@ -95,6 +105,25 @@ class ClassSpec(Spec[T]):
             if param_name not in kwargs:
                 kwargs[param_name] = c.get_instance(param_type)
         return self._class(*args, **kwargs)
+
+
+class SingletonSpec(Spec[T]):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._instance: T = None
+
+    def get_instance(self, c: Container, *args, **kwargs) -> T:
+        if self._instance is None:
+            self._instance = super().get_instance(c, *args, **kwargs)
+        return self._instance
+
+
+class SingletonFactorySpec(SingletonSpec[T], FactorySpec[T]):
+    pass
+
+
+class SingletonClassSpec(SingletonSpec[T], ClassSpec[T]):
+    pass
 
 
 container = Container()
