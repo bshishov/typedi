@@ -149,3 +149,12 @@ def test_singleton_class_self(basic_container: Container):
 def test_mro_container_resolution(basic_container: Container):
     basic_container.register_class(DummyChild)
     assert isinstance(basic_container.get_instance(Dummy), DummyChild)
+
+
+def test_resolution_provides_a_container(basic_container: Container):
+    def factory(c: Container) -> Dummy:
+        assert c is basic_container
+        return Dummy()
+
+    basic_container.register_factory(factory)
+    basic_container.get_instance(Dummy)

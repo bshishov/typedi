@@ -53,9 +53,9 @@ class Container:
         self.parent = parent
         self._storage = storage or MroStorage()
 
-        # Register self, so that client code can access the container
-        # that has provided dependencies (if requested)
-        self.register_class(self.__class__)
+        # Register self, so that client code can access the instance of a container
+        # that has provided dependencies during instance resolving (if requested)
+        self.register_instance(self)
 
     def get_instance(self, key: Type[T], *args, **kwargs) -> T:
         return self.get_spec(key).get_instance(self, *args, **kwargs)
