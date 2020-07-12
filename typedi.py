@@ -16,6 +16,10 @@ __all__ = [
 T = TypeVar('T')
 
 
+def _get_return_type(fn: Callable[..., T]) -> Type[T]:
+    return get_type_hints(fn)['return']
+
+
 class Storage:
     def get(self, key: Type[T]) -> 'Spec[T]':
         raise NotImplementedError
@@ -64,27 +68,30 @@ class Container:
                 return self.parent.get_spec(key)
             raise err
 
-    def register_instance(self, key: Type[T], instance: T):
+    def register_instance(self, instance: T, key: Optional[Type[T]] = None):
+        key = key or type(instance)
         if not isinstance(instance, key):
             raise TypeError(f'Instance should be of type {key}')
         self._storage.set(key, InstanceSpec(instance))
 
-    def register_class(self, key: Type[T], cls: Optional[Type[T]] = None):
-        cls = cls or key
+    def register_class(self, cls: Type[T], key: Optional[Type[T]] = None):
+        key = key or cls
         if not issubclass(cls, key):
             raise TypeError(f'Instance should be of type {key}')
         self._storage.set(key, ClassSpec(cls))
 
-    def register_singleton_class(self, key: Type[T], cls: Optional[Type[T]] = None):
-        cls = cls or key
+    def register_singleton_class(self, cls: Type[T], key: Optional[Type[T]] = None):
+        key = key or cls
         if not issubclass(cls, key):
             raise TypeError(f'Instance should be of type {key}')
         self._storage.set(key, SingletonClassSpec(cls))
 
-    def register_factory(self, key: Type[T], factory: Callable[..., T]):
+    def register_factory(self, factory: Callable[..., T], key: Optional[Type[T]] = None):
+        key = key or _get_return_type(factory)
         self._storage.set(key, FactorySpec(factory))
 
-    def register_singleton_factory(self, key: Type[T], factory: Callable[..., T]):
+    def register_singleton_factory(self, factory: Callable[..., T], key: Optional[Type[T]] = None):
+        key = key or _get_return_type(factory)
         self._storage.set(key, SingletonFactorySpec(factory))
 
     def make_child_container(self):

@@ -38,7 +38,7 @@ class MyClass:
     pass
 
 instance = MyClass()
-container.register_instance(MyClass, instance)
+container.register_instance(instance)
 
 # anywhere else
 from typedi import container
@@ -71,7 +71,7 @@ class MyClass:
 class ChildOfMyClass(MyClass):
     pass
 
-container.register_class(MyClass, ChildOfMyClass)
+container.register_class(ChildOfMyClass)
 
 # anywhere else
 from typedi import container
