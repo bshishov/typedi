@@ -6,16 +6,48 @@ __all__ = [
     'container',
     'InstanceSpec',
     'FactorySpec',
-    'ClassSpec'
+    'ClassSpec',
+    'SingletonSpec',
+    'SingletonClassSpec',
+    'SingletonFactorySpec',
+    'Storage'
 ]
 
 T = TypeVar('T')
 
 
+class Storage:
+    def get(self, key: Type[T]) -> 'Spec[T]':
+        raise NotImplementedError
+
+    def set(self, key: Type[T], spec: 'Spec[T]'):
+        raise NotImplementedError
+
+
+class DictStorage(Storage):
+    def __init__(self):
+        self._spec_dict: Dict[Type, 'Spec'] = {}
+
+    def set(self, key: Type[T], spec: 'Spec[T]'):
+        self._spec_dict[key] = spec
+
+    def get(self, key: Type[T]) -> 'Spec[T]':
+        return self._spec_dict[key]
+
+
+class MroStorage(DictStorage):
+    def set(self, key: Type[T], spec: 'Spec[T]'):
+        if inspect.isclass(key):
+            for base in inspect.getmro(key):
+                self._spec_dict[base] = spec
+        else:
+            self._spec_dict[key] = spec
+
+
 class Container:
-    def __init__(self, parent: Optional['Container'] = None):
+    def __init__(self, parent: Optional['Container'] = None, storage: Optional[Storage] = None):
         self.parent = parent
-        self._storage: Dict[Type, 'Spec'] = {}
+        self._storage = storage or MroStorage()
 
         # Register self, so that client code can access the container
         # that has provided dependencies (if requested)
@@ -26,7 +58,7 @@ class Container:
 
     def get_spec(self, key: Type[T]) -> 'Spec[T]':
         try:
-            return self._storage[key]
+            return self._storage.get(key)
         except KeyError as err:
             if self.parent is not None:
                 return self.parent.get_spec(key)
@@ -35,28 +67,28 @@ class Container:
     def register_instance(self, key: Type[T], instance: T):
         if not isinstance(instance, key):
             raise TypeError(f'Instance should be of type {key}')
-        self._storage[key] = InstanceSpec(instance)
+        self._storage.set(key, InstanceSpec(instance))
 
     def register_class(self, key: Type[T], cls: Optional[Type[T]] = None):
         cls = cls or key
         if not issubclass(cls, key):
             raise TypeError(f'Instance should be of type {key}')
-        self._storage[key] = ClassSpec(cls)
+        self._storage.set(key, ClassSpec(cls))
 
     def register_singleton_class(self, key: Type[T], cls: Optional[Type[T]] = None):
         cls = cls or key
         if not issubclass(cls, key):
             raise TypeError(f'Instance should be of type {key}')
-        self._storage[key] = SingletonClassSpec(cls)
+        self._storage.set(key, SingletonClassSpec(cls))
 
     def register_factory(self, key: Type[T], factory: Callable[..., T]):
-        self._storage[key] = FactorySpec(factory)
+        self._storage.set(key, FactorySpec(factory))
 
     def register_singleton_factory(self, key: Type[T], factory: Callable[..., T]):
-        self._storage[key] = SingletonFactorySpec(factory)
+        self._storage.set(key, SingletonFactorySpec(factory))
 
     def make_child_container(self):
-        return Container(self)
+        return Container(self, storage=self._storage.__class__())
 
 
 class Spec(Generic[T]):
