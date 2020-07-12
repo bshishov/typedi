@@ -53,7 +53,6 @@ from typedi import container
 class MyClass:
     pass
 
-instance = MyClass()
 container.register_class(MyClass)
 
 # anywhere else
@@ -72,7 +71,6 @@ class MyClass:
 class ChildOfMyClass(MyClass):
     pass
 
-instance = MyClass()
 container.bind_to_class(MyClass, ChildOfMyClass)
 
 # anywhere else
