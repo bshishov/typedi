@@ -4,14 +4,14 @@
 [![PyPI version](https://badge.fury.io/py/typedi.svg)](https://badge.fury.io/py/typedi)
 [![Coverage Status](https://coveralls.io/repos/github/bshishov/typedi/badge.svg?branch=master)](https://coveralls.io/github/bshishov/typedi?branch=master)
 
-Simple typed dependency injection container.
+Simple yet powerful typed dependency injection container.
 
 To install from python package index simply type (no dependencies):
 ```
 pip install typedi
 ```
 
-Or, if you don't want to bring a dependency inside a project simply copy and paste `typedi.py` inside your project
+Or if you don't want to bring a dependency inside your project simply copy and paste `typedi.py` file (and dont forget the tests).
 
 ## Usage
 ### Common usage scenario
@@ -130,3 +130,11 @@ from typedi import container
 
 auto_instantiated_instance = container.get_instance(MyClass)  # type: ChildOfMyClass
 ```
+
+## Testing
+We are using tox (and pytest) to test among multiple python versions. To run test suites and generate coverage reports simply execute
+```bash
+tox
+```
+
+If you don't have tox installed, execute `pip install tox` first.
