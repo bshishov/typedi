@@ -14,6 +14,58 @@ pip install typedi
 Or, if you don't want to bring a dependency inside a project simply copy and paste `typedi.py` inside your project
 
 ## Usage
+### Common usage scenario
+
+*config.py*
+```python
+from dataclasses import dataclass
+
+@dataclass
+class DatabaseConfig:
+    host: str
+    username: str
+    password: str
+
+@dataclass
+class AppConfig:
+    debug: bool = False 
+```
+
+*app.py*
+```python
+from config import DatabaseConfig, AppConfig
+
+class Application:
+    def __init__(self, app_conf: AppConfig, db_config: DatabaseConfig):
+        pass
+
+    def run(self):
+        pass
+```
+
+*main.py*
+```python
+from typedi import container
+
+from config import DatabaseConfig, AppConfig
+from app import Application
+
+def load_db_config_from_file() -> DatabaseConfig:
+    # Load config from file... and intantiate a config object
+    return DatabaseConfig(host='localhost', username='user', password='pass')
+
+if __name__ == '__main__':
+    container.register_singleton_factory(load_db_config_from_file)
+    container.register_singleton_class(AppConfig)
+    container.register_class(Application)
+    
+    # When accessing the instance typedi will automatically resolve all required dependencies
+    # provided in __init__ annotations
+    application_with_initialized_configs = container.get_instance(Application)
+    application_with_initialized_configs.run()
+```
+
+
 ### Containers
 
 typedi comes with a default shared container, to add or retrieve instances from it import it anywhere you need - usually in some initialization/bootstrapping logic.
