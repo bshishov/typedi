@@ -6,7 +6,7 @@ with open('README.md', 'r') as f:
 setup(
     name='typedi',
     version='0.3.0',
-    description='Python typed object schema validation',
+    description='Simple yet powerful typed dependency injection container',
     url='https://github.com/bshishov/typedi',
     author='Boris Shishov',
     author_email='borisshishov@gmail.com',
