@@ -1,4 +1,4 @@
-from typing import Optional, Type, Callable, Dict, Any, get_type_hints, TypeVar, Generic, overload
+from typing import Optional, Type, Callable, Dict, get_type_hints, TypeVar, Generic
 import inspect
 
 __all__ = [
@@ -68,31 +68,44 @@ class Container:
                 return self.parent.get_spec(key)
             raise err
 
-    def register_instance(self, instance: T, key: Optional[Type[T]] = None):
+    def register_instance(self, instance: T, key: Optional[Type[T]] = None) -> 'InstanceSpec[T]':
         key = key or type(instance)
         if not isinstance(instance, key):
             raise TypeError(f'Instance should be of type {key}')
-        self._storage.set(key, InstanceSpec(instance))
+        spec = InstanceSpec(instance)
+        self._storage.set(key, spec)
+        return spec
 
-    def register_class(self, cls: Type[T], key: Optional[Type[T]] = None):
+    def register_class(self, cls: Type[T], key: Optional[Type[T]] = None) -> 'ClassSpec[T]':
         key = key or cls
         if not issubclass(cls, key):
             raise TypeError(f'Instance should be of type {key}')
-        self._storage.set(key, ClassSpec(cls))
+        spec = ClassSpec(cls)
+        self._storage.set(key, spec)
+        return spec
 
-    def register_singleton_class(self, cls: Type[T], key: Optional[Type[T]] = None):
+    def register_singleton_class(self, cls: Type[T],
+                                 key: Optional[Type[T]] = None) -> 'SingletonClassSpec[T]':
         key = key or cls
         if not issubclass(cls, key):
             raise TypeError(f'Instance should be of type {key}')
-        self._storage.set(key, SingletonClassSpec(cls))
+        spec = SingletonClassSpec(cls)
+        self._storage.set(key, spec)
+        return spec
 
-    def register_factory(self, factory: Callable[..., T], key: Optional[Type[T]] = None):
+    def register_factory(self, factory: Callable[..., T],
+                         key: Optional[Type[T]] = None) -> 'FactorySpec[T]':
         key = key or _get_return_type(factory)
-        self._storage.set(key, FactorySpec(factory))
+        spec = FactorySpec(factory)
+        self._storage.set(key, spec)
+        return spec
 
-    def register_singleton_factory(self, factory: Callable[..., T], key: Optional[Type[T]] = None):
+    def register_singleton_factory(self, factory: Callable[..., T],
+                                   key: Optional[Type[T]] = None) -> 'SingletonFactorySpec[T]':
         key = key or _get_return_type(factory)
-        self._storage.set(key, SingletonFactorySpec(factory))
+        spec = SingletonFactorySpec(factory)
+        self._storage.set(key, spec)
+        return spec
 
     def make_child_container(self):
         return Container(self, storage=self._storage.__class__())
@@ -118,15 +131,19 @@ class FactorySpec(Spec[T]):
     def __init__(self, factory: Callable[..., T]):
         self._factory = factory
         self._annotations = get_type_hints(factory)
+        self._kwargs = {}
 
         if 'return' in self._annotations:
             del self._annotations['return']
 
     def get_instance(self, c: Container, *args, **kwargs) -> T:
         for param_name, param_type in self._annotations.items():
-            if param_name not in kwargs:
+            if param_name not in kwargs and param_name not in self._kwargs:
                 kwargs[param_name] = c.get_instance(param_type)
-        return self._factory(*args, **kwargs)
+        return self._factory(*args, **self._kwargs, **kwargs)
+
+    def set_kwargs(self, **kwargs):
+        self._kwargs = kwargs
 
 
 class ClassSpec(Spec[T]):
@@ -134,6 +151,8 @@ class ClassSpec(Spec[T]):
         if not inspect.isclass(cls):
             raise TypeError(f'Expected class type, got {cls} instead')
         self._class = cls
+        self._kwargs = {}
+
         try:
             self._annotations = get_type_hints(self._class.__init__)
         except AttributeError:
@@ -141,9 +160,12 @@ class ClassSpec(Spec[T]):
 
     def get_instance(self, c: Container, *args, **kwargs) -> T:
         for param_name, param_type in self._annotations.items():
-            if param_name not in kwargs:
+            if param_name not in kwargs and param_name not in self._kwargs:
                 kwargs[param_name] = c.get_instance(param_type)
-        return self._class(*args, **kwargs)
+        return self._class(*args, **self._kwargs, **kwargs)
+
+    def set_kwargs(self, **kwargs):
+        self._kwargs = kwargs
 
 
 class SingletonSpec(Spec[T]):
