@@ -1,3 +1,4 @@
+from typing import Optional, Union
 import pytest
 
 from typedi import *
@@ -158,3 +159,36 @@ def test_resolution_provides_a_container(basic_container: Container):
 
     basic_container.register_factory(factory)
     basic_container.get_instance(Dummy)
+
+
+def test_optional_provider_optional_requester_ret_none(basic_container: Container):
+    def factory() -> Optional[Dummy]:
+        return None
+
+    basic_container.register_factory(factory)
+    assert basic_container.get_instance(Optional[Dummy]) is None
+
+
+def test_optional_provider_optional_requester_ret_obj(basic_container: Container):
+    def factory() -> Optional[Dummy]:
+        return Dummy()
+
+    basic_container.register_factory(factory)
+    assert basic_container.get_instance(Optional[Dummy]) is not None
+
+
+def test_optional_provider_non_optional_requester_ret_none(basic_container: Container):
+    def factory() -> Optional[Dummy]:
+        return None
+
+    basic_container.register_factory(factory)
+    with pytest.raises(ResolutionError):
+        basic_container.get_instance(Dummy)
+
+
+def test_optional_provider_non_optional_requester_ret_obj(basic_container: Container):
+    def factory() -> Optional[Dummy]:
+        return Dummy()
+
+    basic_container.register_factory(factory)
+    assert basic_container.get_instance(Dummy) is not None

@@ -1,4 +1,5 @@
-from typing import Optional, Type, Callable, Dict, get_type_hints, TypeVar, Generic
+from typing import Optional, Type, Callable, Dict, get_type_hints, TypeVar, Generic, Tuple, Union
+import typing
 import inspect
 
 __all__ = [
@@ -10,14 +11,37 @@ __all__ = [
     'SingletonSpec',
     'SingletonClassSpec',
     'SingletonFactorySpec',
-    'Storage'
+    'Storage',
+    'ResolutionError'
 ]
 
 T = TypeVar('T')
+_NoneType = type(None)
+
+
+class ResolutionError(KeyError):
+    def __init__(self, typ: Type):
+        if inspect.isclass(typ):
+            typename = typ.__qualname__
+        else:
+            typename = str(typ)
+        super().__init__(f'Container was not able to resolve type: {typename}')
 
 
 def _get_return_type(fn: Callable[..., T]) -> Type[T]:
     return get_type_hints(fn)['return']
+
+
+def _get_type_from_optional(typ: Type[T]) -> Tuple[Type[T], bool]:
+    try:
+        # Special Optional[T] case, Optional[T] is Union[T, type(None)]
+        if (typ.__origin__ is typing.Union
+                and len(typ.__args__) == 2
+                and typ.__args__[1] is type(None)):
+            return typ.__args__[0], True
+    except AttributeError:  # no __origin__ / __args__ for non _GenericAlias types
+        pass
+    return typ, False
 
 
 class Storage:
@@ -36,11 +60,18 @@ class DictStorage(Storage):
         self._spec_dict[key] = spec
 
     def get(self, key: Type[T]) -> 'Spec[T]':
+        if key not in self._spec_dict:
+            raise ResolutionError(key)
         return self._spec_dict[key]
 
 
 class MroStorage(DictStorage):
     def set(self, key: Type[T], spec: 'Spec[T]'):
+        actual_type, is_optional = _get_type_from_optional(key)
+
+        if is_optional:
+            self.set(actual_type, spec)
+
         if inspect.isclass(key):
             for base in inspect.getmro(key):
                 self._spec_dict[base] = spec
@@ -58,7 +89,17 @@ class Container:
         self.register_instance(self)
 
     def get_instance(self, key: Type[T], *args, **kwargs) -> T:
-        return self.get_spec(key).get_instance(self, *args, **kwargs)
+        key, is_optional = _get_type_from_optional(key)
+        try:
+            instance = self.get_spec(key).get_instance(self, *args, **kwargs)
+            if instance is None and not is_optional:
+                raise ResolutionError(key)
+            return instance
+        except ResolutionError as err:
+            if is_optional:
+                return None
+            else:
+                raise err
 
     def get_spec(self, key: Type[T]) -> 'Spec[T]':
         try:
@@ -132,15 +173,24 @@ class FactorySpec(Spec[T]):
         self._factory = factory
         self._annotations = get_type_hints(factory)
         self._kwargs = {}
+        self._arg_spec = inspect.getfullargspec(self._factory)
 
         if 'return' in self._annotations:
             del self._annotations['return']
 
     def get_instance(self, c: Container, *args, **kwargs) -> T:
+        # Updating kwargs from args
+        kwargs.update(zip(self._arg_spec.args, args))
+
         for param_name, param_type in self._annotations.items():
-            if param_name not in kwargs and param_name not in self._kwargs:
-                kwargs[param_name] = c.get_instance(param_type)
-        return self._factory(*args, **self._kwargs, **kwargs)
+            if param_name not in kwargs and param_name not in kwargs:
+                try:
+                    kwargs[param_name] = c.get_instance(param_type)
+                except ResolutionError:
+                    # Not filling types that container is usable to resolve
+                    pass
+        kwargs.update(self._kwargs)
+        return self._factory(**kwargs)
 
     def set_kwargs(self, **kwargs):
         self._kwargs = kwargs
@@ -152,17 +202,29 @@ class ClassSpec(Spec[T]):
             raise TypeError(f'Expected class type, got {cls} instead')
         self._class = cls
         self._kwargs = {}
+        self._arg_spec = inspect.getfullargspec(self._class)
 
         try:
+            # Arg-spec annotations are not forward-ref evaluated, using typing instead
             self._annotations = get_type_hints(self._class.__init__)
-        except AttributeError:
+            if 'return' in self._annotations:
+                del self._annotations['return']
+        except AttributeError:  # No __init__ method
             self._annotations = {}
 
     def get_instance(self, c: Container, *args, **kwargs) -> T:
+        # Updating kwargs from args starting from 1 to exclude self
+        kwargs.update(zip(self._arg_spec.args[1:], args))
+
         for param_name, param_type in self._annotations.items():
-            if param_name not in kwargs and param_name not in self._kwargs:
-                kwargs[param_name] = c.get_instance(param_type)
-        return self._class(*args, **self._kwargs, **kwargs)
+            if param_name not in kwargs and param_name not in kwargs:
+                try:
+                    kwargs[param_name] = c.get_instance(param_type)
+                except ResolutionError:
+                    # Not filling types that container is usable to resolve
+                    pass
+        kwargs.update(self._kwargs)
+        return self._class(**kwargs)
 
     def set_kwargs(self, **kwargs):
         self._kwargs = kwargs
