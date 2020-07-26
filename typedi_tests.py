@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Optional
 import pytest
 
 from typedi import *
@@ -192,3 +192,58 @@ def test_optional_provider_non_optional_requester_ret_obj(basic_container: Conta
 
     basic_container.register_factory(factory)
     assert basic_container.get_instance(Dummy) is not None
+
+
+def test_not_all_provided(basic_container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    def factory(a: A, b: B) -> Dummy:
+        return Dummy()
+
+    basic_container.register_class(B)
+    basic_container.register_factory(factory)
+    with pytest.raises(TypeError):
+        basic_container.get_instance(Dummy)
+
+
+def test_kwargs_get_instance(basic_container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    instance = Dummy()
+
+    def factory(a: A, b: B) -> Dummy:
+        return instance
+
+    basic_container.register_class(B)
+    basic_container.register_factory(factory)
+
+    assert basic_container.get_instance(Dummy, a=A()) is instance
+
+
+def test_kwargs_priority(basic_container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    instance = Dummy()
+    b_instance = B()
+
+    def factory(a: A, b: B) -> Dummy:
+        instance.b = b
+        return instance
+
+    basic_container.register_class(B)
+    basic_container.register_factory(factory)
+
+    dummy = basic_container.get_instance(Dummy, a=A(), b=b_instance)
+    assert dummy.b is b_instance
