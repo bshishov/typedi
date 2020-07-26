@@ -5,7 +5,7 @@ with open('README.md', 'r') as f:
 
 setup(
     name='typedi',
-    version='0.4.0',
+    version='0.4.1',
     description='Simple yet powerful typed dependency injection container',
     url='https://github.com/bshishov/typedi',
     author='Boris Shishov',
