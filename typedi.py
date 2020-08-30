@@ -1,10 +1,9 @@
-from typing import Optional, Type, Callable, Dict, get_type_hints, TypeVar, Generic, Tuple, Union
+from typing import Optional, Type, Callable, Dict, get_type_hints, TypeVar, Generic, Tuple
 import typing
 import inspect
 
 __all__ = [
     'Container',
-    'container',
     'InstanceSpec',
     'FactorySpec',
     'ClassSpec',
@@ -247,6 +246,3 @@ class SingletonFactorySpec(SingletonSpec[T], FactorySpec[T]):
 
 class SingletonClassSpec(SingletonSpec[T], ClassSpec[T]):
     pass
-
-
-container = Container()

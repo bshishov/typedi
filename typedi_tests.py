@@ -21,11 +21,6 @@ def basic_container() -> Container:
     return Container()
 
 
-def test_default_container_exists():
-    import typedi
-    assert isinstance(typedi.container, Container)
-
-
 def test_register_instance(basic_container: Container):
     instance = Dummy()
     basic_container.register_instance(instance)
