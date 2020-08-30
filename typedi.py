@@ -111,7 +111,7 @@ class Container:
     def register_instance(self, instance: T, key: Optional[Type[T]] = None) -> 'InstanceSpec[T]':
         key = key or type(instance)
         if not isinstance(instance, key):
-            raise TypeError(f'Instance should be of type {key}')
+            raise TypeError(f'Instance is not of type {key}')
         spec = InstanceSpec(instance)
         self._storage.set(key, spec)
         return spec
@@ -119,7 +119,7 @@ class Container:
     def register_class(self, cls: Type[T], key: Optional[Type[T]] = None) -> 'ClassSpec[T]':
         key = key or cls
         if not issubclass(cls, key):
-            raise TypeError(f'Instance should be of type {key}')
+            raise TypeError(f'Class {cls} is not a subclass of {key}')
         spec = ClassSpec(cls)
         self._storage.set(key, spec)
         return spec
@@ -128,7 +128,7 @@ class Container:
                                  key: Optional[Type[T]] = None) -> 'SingletonClassSpec[T]':
         key = key or cls
         if not issubclass(cls, key):
-            raise TypeError(f'Instance should be of type {key}')
+            raise TypeError(f'Class {cls} is not a subclass of {key}')
         spec = SingletonClassSpec(cls)
         self._storage.set(key, spec)
         return spec
