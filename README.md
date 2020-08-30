@@ -45,7 +45,7 @@ class Application:
 
 *main.py*
 ```python
-from typedi import container
+from typedi import Container
 
 from config import DatabaseConfig, AppConfig
 from app import Application
@@ -55,6 +55,7 @@ def load_db_config_from_file() -> DatabaseConfig:
     return DatabaseConfig(host='localhost', username='user', password='pass')
 
 if __name__ == '__main__':
+    container = Container()
     container.register_singleton_factory(load_db_config_from_file)
     container.register_singleton_class(AppConfig)
     container.register_class(Application)
@@ -68,68 +69,83 @@ if __name__ == '__main__':
 
 ### Containers
 
-typedi comes with a default shared container, to add or retrieve instances from it import it anywhere you need - usually in some initialization/bootstrapping logic.
- 
- ```python
-from typedi import container
-```
-
-Or you could also create your own DI containers:
+You can create your own container DI container that will store instances/factories you provide:
 
 ```python
 from typedi import Container
 
-my_container = Container()
+container = Container()
 ```
 
+typedi does not come with a shared container since not to encourage the use of global state. In fact, you should take care of sharing container across modules if you want to implement service-locator pattern.
+
 ### Instance bindings, "user-managed singletons"
+
+Containers could act as a simple key-value storage for instances where the key is actually a type of that instance, you register an instance first, then ask for a type to get the instance.  
 ```python
-from typedi import container
+from typedi import Container
 
 class MyClass:
     pass
 
 instance = MyClass()
+container = Container()
 container.register_instance(instance)
-
-# anywhere else
-from typedi import container
-
-instance = container.get_instance(MyClass)
+instance2 = container.get_instance(MyClass)
 ```
 
 ### Class bindings
+
+Note that instead of registering an actual instance you could register a class acting as a factory of instances.
+Then when an instance is requested, a class would be instantiated (with all init args resolved) and returned.
+ 
 ```python
-from typedi import container
+from typedi import Container
 
 class MyClass:
     pass
 
+container = Container()
 container.register_class(MyClass)
-
-# anywhere else
-from typedi import container
-
-auto_instantiated_instance = container.get_instance(MyClass)
+instance = container.get_instance(MyClass)
 ```
 
 ### Class bindings with inheritance
+
+The main strength of DI containers is ability to decouple dependencies by sharing common interface while user of an object does not care about actual implementation. 
+
 ```python
-from typedi import container
+from typedi import Container
 
-class MyClass:
+class SomeBaseClass:
     pass
 
-class ChildOfMyClass(MyClass):
+class MyClass(SomeBaseClass):
     pass
 
-container.register_class(ChildOfMyClass)
+container = Container()
 
-# anywhere else
-from typedi import container
+# here we register MyClass as a class binding
+# It is factory of both MyClass objects and SomeBaseClass objects (using MRO)
+container.register_class(MyClass)
 
-auto_instantiated_instance = container.get_instance(MyClass)  # type: ChildOfMyClass
+# Note that we ask for a base class but container will actually instantiate a MyClass object
+# since container knows the base classes of MyClass
+instance = container.get_instance(SomeBaseClass)  # type: MyClass
 ```
+
+### Features
+
+typedi also has support of various features:
+
+* Factory functions
+* Singletons support, both for classes and factory functions
+* Optionals support - ability to implement "try resolve or return None if no dependency" behavior
+* Instantiation kwargs - ability to override default kwargs or resolution of kwargs
+* Container nesting
+* Configurable container storage
+
+If you want to learn more, please refer to typedi_tests and actual implementation since it is quite self-describing :)
 
 ## Testing
 We are using tox (and pytest) to test among multiple python versions. To run test suites and generate coverage reports simply execute
