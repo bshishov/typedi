@@ -11,7 +11,7 @@ To install from python package index simply type (no dependencies):
 pip install typedi
 ```
 
-Or if you don't want to bring a dependency inside your project simply copy and paste `typedi.py` file (and dont forget the tests).
+Or if you don't want to bring a dependency inside your project simply copy and paste `typedi.py` file (and don't forget the tests).
 
 ## Usage
 ### Common usage scenario
@@ -149,12 +149,9 @@ instance = container.resolve(SomeBaseClass)  # type: MyClass
 
 typedi also has support of various features:
 
-* Factory functions
+* Factory functions (including `functools.partial`)
 * Singletons support, both for classes and factory functions
 * Optionals support - ability to implement "try resolve or return None if no dependency" behavior
-* Instantiation kwargs - ability to override default kwargs or resolution of kwargs
-* Container nesting
-* Configurable container storage
 
 If you want to learn more, please refer to typedi_tests and actual implementation since it is quite self-describing :)
 
