@@ -1,248 +1,312 @@
-from typing import Optional, Type, Callable, Dict, get_type_hints, TypeVar, Generic, Tuple
-import typing
+from typing import (
+    Optional,
+    Type,
+    Callable,
+    Dict,
+    get_type_hints,
+    TypeVar,
+    Generic,
+    Iterable,
+    List,
+    Any,
+    Union,
+    Set,
+    Tuple,
+)
 import inspect
+from collections import defaultdict, abc as collection_abc
+from abc import ABCMeta, abstractmethod
+from functools import partial
+
 
 __all__ = [
-    'Container',
-    'InstanceSpec',
-    'FactorySpec',
-    'ClassSpec',
-    'SingletonSpec',
-    'SingletonClassSpec',
-    'SingletonFactorySpec',
-    'Storage',
-    'ResolutionError'
+    "MroStorage",
+    "Container",
+    "ResolutionError",
 ]
 
-T = TypeVar('T')
-_NoneType = type(None)
+T = TypeVar("T")
 
 
 class ResolutionError(KeyError):
-    def __init__(self, typ: Type):
-        if inspect.isclass(typ):
+    def __init__(self, typ: Any):
+        if isinstance(typ, type):
             typename = typ.__qualname__
         else:
             typename = str(typ)
-        super().__init__(f'Container was not able to resolve type: {typename}')
+        super().__init__(f"Container is not able to resolve type: {typename}")
 
 
-def _get_return_type(fn: Callable[..., T]) -> Type[T]:
-    return get_type_hints(fn)['return']
+def _return_type(obj: Union[Type[T], Callable[..., T]]) -> Union[Type[T], type]:
+    if isinstance(obj, type):
+        # Classes or types produce themselves
+        return obj
+
+    # Partial is an object of class "functools.partial"
+    # So we need to resolve return type from the wrapped function
+    if isinstance(obj, partial):
+        return _return_type(obj.func)
+
+    # Functions and methods
+    return_type: Union[Type[T], type, None] = get_type_hints(obj).get("return")
+    if return_type is None:
+        raise TypeError(f"Missing return type annotation for {obj}")
+    return return_type
 
 
-def _get_type_from_optional(typ: Type[T]) -> Tuple[Type[T], bool]:
+def _matches_query(obj: Any, query: Any) -> bool:
+    # Note: not taking Union into account
+    # because it is already resolved in Container._resolve_all_instances
+    if isinstance(query, type):
+        return isinstance(obj, query)
+
+    if _get_origin(query) == type(obj):
+        # Optimistic Generic check
+        return True
+
+    return False
+
+
+def _get_origin(type_: Any) -> Any:
+    """Get unsubscribed version of `type_`.
+    Examples:
+        _get_origin(int) is None
+        _get_origin(typing.Any) is None
+        _get_origin(typing.List[int]) is list
+        _get_origin(typing.Literal[123]) is typing.Literal
+        _get_origin(typing.Generic[T]) is typing.Generic
+        _get_origin(typing.Generic) is typing.Generic
+        _get_origin(typing.Annotated[int, "some"]) is int
+
+    NOTE: This method intentionally allows Annotated to proxy __origin__
+    """
+    if type_ is Generic:  # Special case
+        return type_
+    return getattr(type_, "__origin__", None)
+
+
+def _get_args(type_: Any) -> Tuple[Any, ...]:
+    """Get type arguments with all substitutions performed.
+    For unions, basic simplifications used by Union constructor are performed.
+
+    Examples:
+        _get_args(Dict[str, int]) == (str, int)
+        _get_args(int) == ()
+        _get_args(Union[int, Union[T, int], str][int]) == (int, str)
+        _get_args(Union[int, Tuple[T, int]][str]) == (int, Tuple[str, int])
+        _get_args(Callable[[], T][int]) == ([], int)
+    """
+    return getattr(type_, "__args__", tuple())
+
+
+def _is_subclass(left: Any, right: type) -> bool:
+    """Modified `issubclass` to support generics and other types.
+    __origin__ is being tested for generics
+    right value should be a class
+    Examples:
+
+        _is_subclass(typing.List[int], collections.abc.Sequence) == True
+        _is_subclass(typing.List, collections.abc.Sequence) == True
+        _is_subclass(typing.Tuple, collections.abc.Sequence) == True
+        _is_subclass(typing.Any, collections.abc.Sequence) == False
+        _is_subclass(int, collections.abc.Sequence) == False
+    """
     try:
-        # Special Optional[T] case, Optional[T] is Union[T, type(None)]
-        if (typ.__origin__ is typing.Union
-                and len(typ.__args__) == 2
-                and typ.__args__[1] is type(None)):
-            return typ.__args__[0], True
-    except AttributeError:  # no __origin__ / __args__ for non _GenericAlias types
-        pass
-    return typ, False
+        return issubclass(getattr(left, "__origin__", left), right)
+    except TypeError:
+        return False
 
 
-class Storage:
-    def get(self, key: Type[T]) -> 'Spec[T]':
-        raise NotImplementedError
+class MroStorage:
+    __slots__ = "_instance_providers"
 
-    def set(self, key: Type[T], spec: 'Spec[T]'):
-        raise NotImplementedError
+    def __init__(self) -> None:
+        self._instance_providers: Dict[
+            Type[Any], List[InstanceProvider[Any]]
+        ] = defaultdict(list)
+        self._instance_providers[type(None)] = [ConstInstanceProvider(None)]
 
-
-class DictStorage(Storage):
-    def __init__(self):
-        self._spec_dict: Dict[Type, 'Spec'] = {}
-
-    def set(self, key: Type[T], spec: 'Spec[T]'):
-        self._spec_dict[key] = spec
-
-    def get(self, key: Type[T]) -> 'Spec[T]':
-        if key not in self._spec_dict:
-            raise ResolutionError(key)
-        return self._spec_dict[key]
-
-
-class MroStorage(DictStorage):
-    def set(self, key: Type[T], spec: 'Spec[T]'):
-        actual_type, is_optional = _get_type_from_optional(key)
-
-        if is_optional:
-            self.set(actual_type, spec)
-
-        if inspect.isclass(key):
-            for base in inspect.getmro(key):
-                self._spec_dict[base] = spec
+    def add(self, type_: Type[T], provider: "InstanceProvider[T]") -> None:
+        if isinstance(type_, type):
+            # To support inheritance queries we build index by
+            # adding all the base classes of the type except object
+            # which is last in the MRO
+            for base in type_.__mro__[:-1]:
+                if provider not in self._instance_providers[base]:
+                    self._instance_providers[base].insert(0, provider)
+        elif _get_origin(type_) == Union:
+            # If the production type is a union type
+            # which means that provider might produce
+            # different results in different cases
+            # we need to index each option separately
+            for arg in _get_args(type_):
+                self.add(arg, provider)
         else:
-            self._spec_dict[key] = spec
+            # All other cases (generics and special types) are indexed as-is
+            if provider not in self._instance_providers[type_]:
+                self._instance_providers[type_].insert(0, provider)
+
+    def query(self, query: Type[T]) -> Iterable["InstanceProvider[T]"]:
+        yield from self._instance_providers[query]
 
 
 class Container:
-    def __init__(self, parent: Optional['Container'] = None, storage: Optional[Storage] = None):
-        self.parent = parent
+    __slots__ = "_storage"
+
+    def __init__(self, storage: Optional[MroStorage] = None):
         self._storage = storage or MroStorage()
 
         # Register self, so that client code can access the instance of a container
         # that has provided dependencies during instance resolving (if requested)
         self.register_instance(self)
 
-    def get_instance(self, key: Type[T], *args, **kwargs) -> T:
-        key, is_optional = _get_type_from_optional(key)
-        try:
-            instance = self.get_spec(key).get_instance(self, *args, **kwargs)
-            if instance is None and not is_optional:
-                raise ResolutionError(key)
+    def _resolve_all_instances(
+        self, query: Type[T], used_providers: Set["InstanceProvider[T]"]
+    ) -> Iterable[T]:
+        # Try resolve direct query match using container
+        for provider in self._storage.query(query):
+            if provider not in used_providers:
+                instance = provider.get_instance(self)
+
+                # instance is not guaranteed to match query
+                # i.e. `provider` is f() -> A | B  while `query` could be B | C
+                if _matches_query(instance, query):
+                    yield instance
+                    used_providers.add(provider)
+
+        # Try break down complex query
+        type_origin = _get_origin(query)
+        if type_origin:
+            type_args = _get_args(query)
+            if type_origin == Union:
+                # Union resolution - try resolve by each
+                for arg in type_args:
+                    yield from self._resolve_all_instances(arg, used_providers)
+            elif _is_subclass(type_origin, collection_abc.Sequence):
+                # Sequence query resolution
+                if len(type_args) == 1:
+                    yield list(
+                        self._resolve_all_instances(type_args[0], used_providers)
+                    )  # type: ignore
+            elif type_origin is collection_abc.Iterable:
+                # Iterable query resolution
+                if len(type_args) == 1:
+                    # Note: yielding iterator intentionally
+                    yield self._resolve_all_instances(type_args[0], used_providers)  # type: ignore
+
+    def resolve(self, query: Type[T]) -> T:
+        """Resolves instance (or collection of instances) of specified query
+
+        Examples:
+
+            resolve(A)
+                Will find the latest registered instance of type A
+                or raise ResolutionError if resolution is not possible
+
+            resolve(Union[A, B])
+                Will find instance of either type A or B
+                (resolution performs left to right)
+                or raise ResolutionError if resolution is not possible
+
+            resolve(Optional[A])
+                Same as resolve(Union[A, None])
+                Will try to find the latest registered instance of type A
+                or return None (a valid instance of type(None))
+
+            resolve(List[A])
+                Will resolve into a list by performing resolution of A.
+                If there are no instances of A returns an empty list.
+
+            resolve(Iterable[A])
+                Will resolve into an iterator by performing resolution of A.
+                If there are no instances of A returns an empty iterable.
+
+        :param query: Query to resolve.
+        :raises ResolutionError: When container is unable to resolve the query
+        :returns: Resolved instance or collection
+        """
+        for instance in self._resolve_all_instances(query, set()):
             return instance
-        except ResolutionError as err:
-            if is_optional:
-                return None
-            else:
-                raise err
 
-    def get_spec(self, key: Type[T]) -> 'Spec[T]':
-        try:
-            return self._storage.get(key)
-        except KeyError as err:
-            if self.parent is not None:
-                return self.parent.get_spec(key)
-            raise err
+        raise ResolutionError(query)
 
-    def register_instance(self, instance: T, key: Optional[Type[T]] = None) -> 'InstanceSpec[T]':
-        key = key or type(instance)
-        if not isinstance(instance, key):
-            raise TypeError(f'Instance is not of type {key}')
-        spec = InstanceSpec(instance)
-        self._storage.set(key, spec)
-        return spec
+    def iter_all_instances(self, query: Type[T]) -> Iterable[T]:
+        return self._resolve_all_instances(query, set())
 
-    def register_class(self, cls: Type[T], key: Optional[Type[T]] = None) -> 'ClassSpec[T]':
-        key = key or cls
-        if not issubclass(cls, key):
-            raise TypeError(f'Class {cls} is not a subclass of {key}')
-        spec = ClassSpec(cls)
-        self._storage.set(key, spec)
-        return spec
+    def get_all_instances(self, query: Type[T]) -> List[T]:
+        return list(self._resolve_all_instances(query, set()))
 
-    def register_singleton_class(self, cls: Type[T],
-                                 key: Optional[Type[T]] = None) -> 'SingletonClassSpec[T]':
-        key = key or cls
-        if not issubclass(cls, key):
-            raise TypeError(f'Class {cls} is not a subclass of {key}')
-        spec = SingletonClassSpec(cls)
-        self._storage.set(key, spec)
-        return spec
+    def register_instance(self, instance: object) -> None:
+        self._storage.add(type(instance), ConstInstanceProvider(instance))
 
-    def register_factory(self, factory: Callable[..., T],
-                         key: Optional[Type[T]] = None) -> 'FactorySpec[T]':
-        key = key or _get_return_type(factory)
-        spec = FactorySpec(factory)
-        self._storage.set(key, spec)
-        return spec
+    def register_class(self, cls: Type[T]) -> None:
+        # Classes are factories of objects
+        return self.register_factory(cls)
 
-    def register_singleton_factory(self, factory: Callable[..., T],
-                                   key: Optional[Type[T]] = None) -> 'SingletonFactorySpec[T]':
-        key = key or _get_return_type(factory)
-        spec = SingletonFactorySpec(factory)
-        self._storage.set(key, spec)
-        return spec
+    def register_singleton_class(self, cls: Type[T]) -> None:
+        # Classes are factories of objects
+        return self.register_singleton_factory(cls)
 
-    def make_child_container(self):
-        return Container(self, storage=self._storage.__class__())
+    def register_factory(self, factory: Callable[..., T]) -> None:
+        return_type = _return_type(factory)
+        self._storage.add(return_type, FactoryInstanceProvider(factory))
+
+    def register_singleton_factory(self, factory: Callable[..., T]) -> None:
+        return_type = _return_type(factory)
+        self._storage.add(
+            return_type, SingletonInstanceProvider(FactoryInstanceProvider(factory))
+        )
 
 
-class Spec(Generic[T]):
-    def __call__(self, c: Container, *args, **kwargs) -> T:
-        return self.get_instance(c, *args, **kwargs)
-
-    def get_instance(self, c: Container, *args, **kwargs) -> T:
-        raise NotImplementedError
+class InstanceProvider(Generic[T], metaclass=ABCMeta):
+    @abstractmethod
+    def get_instance(self, container: Container) -> T:
+        pass
 
 
-class InstanceSpec(Spec[T]):
+class ConstInstanceProvider(InstanceProvider[T]):
+    __slots__ = "_instance"
+
     def __init__(self, instance: T):
         self._instance = instance
 
-    def get_instance(self, c: Container, *args, **kwargs) -> T:
+    def get_instance(self, container: Container) -> T:
         return self._instance
 
 
-class FactorySpec(Spec[T]):
+class FactoryInstanceProvider(InstanceProvider[T]):
+    __slots__ = "_factory", "_signature"
+
     def __init__(self, factory: Callable[..., T]):
         self._factory = factory
-        self._annotations = get_type_hints(factory)
-        self._kwargs = {}
-        self._arg_spec = inspect.getfullargspec(self._factory)
+        self._signature = inspect.signature(self._factory)
 
-        if 'return' in self._annotations:
-            del self._annotations['return']
+    def get_instance(self, container: Container) -> T:
+        kwargs = {}
 
-    def get_instance(self, c: Container, *args, **kwargs) -> T:
-        # Updating kwargs from args
-        kwargs.update(zip(self._arg_spec.args, args))
+        for param_name, param in self._signature.parameters.items():
+            param_annotation = param.annotation
+            if param_annotation is inspect.Parameter.empty:
+                # Not filling parameters with empty annotations
+                continue
 
-        for param_name, param_type in self._annotations.items():
-            if param_name not in kwargs and param_name not in kwargs:
-                try:
-                    kwargs[param_name] = c.get_instance(param_type)
-                except ResolutionError:
-                    # Not filling types that container is usable to resolve
-                    pass
-        kwargs.update(self._kwargs)
+            try:
+                kwargs[param_name] = container.resolve(param_annotation)
+            except ResolutionError:
+                # Not filling parameters that container is unable to resolve
+                continue
+
         return self._factory(**kwargs)
 
-    def set_kwargs(self, **kwargs):
-        self._kwargs = kwargs
 
+class SingletonInstanceProvider(InstanceProvider[T]):
+    __slots__ = "_provider", "_instance"
 
-class ClassSpec(Spec[T]):
-    def __init__(self, cls: Type[T]):
-        if not inspect.isclass(cls):
-            raise TypeError(f'Expected class type, got {cls} instead')
-        self._class = cls
-        self._kwargs = {}
-        self._arg_spec = inspect.getfullargspec(self._class)
+    def __init__(self, provider: InstanceProvider[T]):
+        self._provider = provider
+        self._instance: Optional[T] = None
 
-        try:
-            # Arg-spec annotations are not forward-ref evaluated, using typing instead
-            self._annotations = get_type_hints(self._class.__init__)
-            if 'return' in self._annotations:
-                del self._annotations['return']
-        except AttributeError:  # No __init__ method
-            self._annotations = {}
-
-    def get_instance(self, c: Container, *args, **kwargs) -> T:
-        # Updating kwargs from args starting from 1 to exclude self
-        kwargs.update(zip(self._arg_spec.args[1:], args))
-
-        for param_name, param_type in self._annotations.items():
-            if param_name not in kwargs and param_name not in kwargs:
-                try:
-                    kwargs[param_name] = c.get_instance(param_type)
-                except ResolutionError:
-                    # Not filling types that container is usable to resolve
-                    pass
-        kwargs.update(self._kwargs)
-        return self._class(**kwargs)
-
-    def set_kwargs(self, **kwargs):
-        self._kwargs = kwargs
-
-
-class SingletonSpec(Spec[T]):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._instance: T = None
-
-    def get_instance(self, c: Container, *args, **kwargs) -> T:
+    def get_instance(self, container: Container) -> T:
         if self._instance is None:
-            self._instance = super().get_instance(c, *args, **kwargs)
+            self._instance = self._provider.get_instance(container)
         return self._instance
-
-
-class SingletonFactorySpec(SingletonSpec[T], FactorySpec[T]):
-    pass
-
-
-class SingletonClassSpec(SingletonSpec[T], ClassSpec[T]):
-    pass

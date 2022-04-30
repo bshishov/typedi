@@ -44,25 +44,28 @@ class Application:
 ```
 
 *main.py*
+
 ```python
 from typedi import Container
 
 from config import DatabaseConfig, AppConfig
 from app import Application
 
+
 def load_db_config_from_file() -> DatabaseConfig:
     # Load config from file... and intantiate a config object
     return DatabaseConfig(host='localhost', username='user', password='pass')
+
 
 if __name__ == '__main__':
     container = Container()
     container.register_singleton_factory(load_db_config_from_file)
     container.register_singleton_class(AppConfig)
     container.register_class(Application)
-    
+
     # When accessing the instance typedi will automatically resolve all required dependencies
     # provided in __init__ annotations
-    application_with_initialized_configs = container.get_instance(Application)
+    application_with_initialized_configs = container.resolve(Application)
     application_with_initialized_configs.run()
 ```
 
@@ -81,47 +84,55 @@ typedi does not come with a shared container since not to encourage the use of g
 
 ### Instance bindings, "user-managed singletons"
 
-Containers could act as a simple key-value storage for instances where the key is actually a type of that instance, you register an instance first, then ask for a type to get the instance.  
+Containers could act as a simple key-value storage for instances where the key is actually a type of that instance, you register an instance first, then ask for a type to get the instance.
+
 ```python
 from typedi import Container
+
 
 class MyClass:
     pass
 
+
 instance = MyClass()
 container = Container()
 container.register_instance(instance)
-instance2 = container.get_instance(MyClass)
+instance2 = container.resolve(MyClass)
 ```
 
 ### Class bindings
 
 Note that instead of registering an actual instance you could register a class acting as a factory of instances.
 Then when an instance is requested, a class would be instantiated (with all init args resolved) and returned.
- 
+
 ```python
 from typedi import Container
+
 
 class MyClass:
     pass
 
+
 container = Container()
 container.register_class(MyClass)
-instance = container.get_instance(MyClass)
+instance = container.resolve(MyClass)
 ```
 
 ### Class bindings with inheritance
 
-The main strength of DI containers is ability to decouple dependencies by sharing common interface while user of an object does not care about actual implementation. 
+The main strength of DI containers is ability to decouple dependencies by sharing common interface while user of an object does not care about actual implementation.
 
 ```python
 from typedi import Container
 
+
 class SomeBaseClass:
     pass
 
+
 class MyClass(SomeBaseClass):
     pass
+
 
 container = Container()
 
@@ -131,7 +142,7 @@ container.register_class(MyClass)
 
 # Note that we ask for a base class but container will actually instantiate a MyClass object
 # since container knows the base classes of MyClass
-instance = container.get_instance(SomeBaseClass)  # type: MyClass
+instance = container.resolve(SomeBaseClass)  # type: MyClass
 ```
 
 ### Features

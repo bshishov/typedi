@@ -1,244 +1,478 @@
-from typing import Optional
+from typing import Optional, Union, List, Iterable, Type
 import pytest
+from functools import partial
 
-from typedi import *
-
-
-class Dummy:
-    pass
-
-
-class DummyChild(Dummy):
-    pass
-
-
-class NotADummyChild:
-    pass
+from typedi import Container, ResolutionError
 
 
 @pytest.fixture
-def basic_container() -> Container:
+def container() -> Container:
     return Container()
 
 
-def test_register_instance(basic_container: Container):
-    instance = Dummy()
-    basic_container.register_instance(instance)
+def test_register_instance(container: Container):
+    class A:
+        pass
 
-    assert basic_container.get_instance(Dummy) is instance
-
-
-def test_register_instance_with_key_specification(basic_container: Container):
-    instance = DummyChild()
-    basic_container.register_instance(instance, Dummy)
-
-    assert basic_container.get_instance(Dummy) is instance
-    with pytest.raises(KeyError):
-        basic_container.get_instance(DummyChild)
+    instance = A()
+    container.register_instance(instance)
+    assert container.resolve(A) is instance
 
 
-def test_get_missing_instance_raises(basic_container: Container):
-    with pytest.raises(KeyError):
-        basic_container.get_instance(Dummy)
+def test_resolve_missing_instance_raises(container: Container):
+    class A:
+        pass
 
-
-def test_register_factory(basic_container: Container):
-    dummy_instance = Dummy()
-
-    def factory() -> Dummy:
-        return dummy_instance
-
-    basic_container.register_factory(factory)
-
-    assert basic_container.get_instance(Dummy) is dummy_instance
-
-
-def test_register_factory_without_return_type_raises(basic_container: Container):
-    dummy_instance = Dummy()
-
-    def factory():
-        return dummy_instance
-
-    with pytest.raises(KeyError):
-        basic_container.register_factory(factory)
-
-
-def test_register_factory_with_key_specification(basic_container: Container):
-    dummy_instance = DummyChild()
-
-    def factory():
-        return dummy_instance
-
-    basic_container.register_factory(factory, Dummy)
-
-    assert basic_container.get_instance(Dummy) is dummy_instance
-
-
-def test_register_child_class_as_base(basic_container: Container):
-    basic_container.register_class(DummyChild, Dummy)
-    assert isinstance(basic_container.get_instance(Dummy), DummyChild)
-
-
-def test_bind_class_not_a_subclass_raises(basic_container: Container):
-    with pytest.raises(TypeError):
-        basic_container.register_class(NotADummyChild, Dummy)
-
-
-def test_register_child_as_base_class(basic_container: Container):
-    instance = DummyChild()
-    basic_container.register_instance(instance, Dummy)
-    assert basic_container.get_instance(Dummy) is instance
-
-
-def test_bind_invalid_instance_raises(basic_container: Container):
-    instance = NotADummyChild()
-    with pytest.raises(TypeError):
-        basic_container.register_class(Dummy, instance)
-
-
-def test_instance_in_parent_container_accessible_from_child():
-    parent = Container()
-    child = parent.make_child_container()
-    instance_in_parent = Dummy()
-    parent.register_instance(instance_in_parent, Dummy)
-    assert child.get_instance(Dummy) is instance_in_parent
-
-
-def test_instance_in_child_container_not_accessible_from_parent():
-    parent = Container()
-    child = parent.make_child_container()
-    instance_in_child = Dummy()
-    child.register_instance(instance_in_child, Dummy)
-    with pytest.raises(KeyError):
-        assert parent.get_instance(Dummy)
-
-
-def test_singleton_factory(basic_container: Container):
-    def factory_fn_that_called_once() -> Dummy:
-        return Dummy()
-
-    basic_container.register_singleton_factory(factory_fn_that_called_once, Dummy)
-
-    dummy1 = basic_container.get_instance(Dummy)
-    dummy2 = basic_container.get_instance(Dummy)
-    assert dummy1 is dummy2
-
-
-def test_singleton_class(basic_container: Container):
-    basic_container.register_singleton_class(DummyChild, Dummy)
-
-    dummy1 = basic_container.get_instance(Dummy)
-    dummy2 = basic_container.get_instance(Dummy)
-    assert dummy1 is dummy2
-    assert isinstance(dummy1, DummyChild)
-
-
-def test_singleton_class_self(basic_container: Container):
-    basic_container.register_singleton_class(Dummy)
-
-    dummy1 = basic_container.get_instance(Dummy)
-    dummy2 = basic_container.get_instance(Dummy)
-    assert dummy1 is dummy2
-    assert isinstance(dummy1, Dummy)
-
-
-def test_mro_container_resolution(basic_container: Container):
-    basic_container.register_class(DummyChild)
-    assert isinstance(basic_container.get_instance(Dummy), DummyChild)
-
-
-def test_resolution_provides_a_container(basic_container: Container):
-    def factory(c: Container) -> Dummy:
-        assert c is basic_container
-        return Dummy()
-
-    basic_container.register_factory(factory)
-    basic_container.get_instance(Dummy)
-
-
-def test_optional_provider_optional_requester_ret_none(basic_container: Container):
-    def factory() -> Optional[Dummy]:
-        return None
-
-    basic_container.register_factory(factory)
-    assert basic_container.get_instance(Optional[Dummy]) is None
-
-
-def test_optional_provider_optional_requester_ret_obj(basic_container: Container):
-    def factory() -> Optional[Dummy]:
-        return Dummy()
-
-    basic_container.register_factory(factory)
-    assert basic_container.get_instance(Optional[Dummy]) is not None
-
-
-def test_optional_provider_non_optional_requester_ret_none(basic_container: Container):
-    def factory() -> Optional[Dummy]:
-        return None
-
-    basic_container.register_factory(factory)
     with pytest.raises(ResolutionError):
-        basic_container.get_instance(Dummy)
+        container.resolve(A)
 
 
-def test_optional_provider_non_optional_requester_ret_obj(basic_container: Container):
-    def factory() -> Optional[Dummy]:
-        return Dummy()
-
-    basic_container.register_factory(factory)
-    assert basic_container.get_instance(Dummy) is not None
-
-
-def test_not_all_provided(basic_container: Container):
+def test_resolve_class_produces_different_instances(container: Container):
     class A:
         pass
 
-    class B:
+    container.register_class(A)
+
+    instance1 = container.resolve(A)
+    instance2 = container.resolve(A)
+    assert isinstance(instance1, A)
+    assert isinstance(instance2, A)
+    assert instance1 is not instance2
+
+
+def test_register_factory(container: Container):
+    class A:
         pass
 
-    def factory(a: A, b: B) -> Dummy:
-        return Dummy()
+    instance = A()
 
-    basic_container.register_class(B)
-    basic_container.register_factory(factory)
+    def factory() -> A:
+        return instance
+
+    container.register_factory(factory)
+
+    assert container.resolve(A) is instance
+
+
+def test_register_factory_without_return_type_raises(container: Container):
+    def factory():
+        pass
+
     with pytest.raises(TypeError):
-        basic_container.get_instance(Dummy)
+        container.register_factory(factory)
 
 
-def test_kwargs_get_instance(basic_container: Container):
+def test_register_partial(container: Container):
+    class A:
+        def __init__(self, param):
+            self.param = param
+
+    container.register_factory(partial(A, param=1))
+
+    instance = container.resolve(A)
+    assert isinstance(instance, A)
+    assert instance.param == 1
+
+
+def test_register_partial_factory(container: Container):
+    class A:
+        def __init__(self, param):
+            self.param = param
+
+    def factory(param: int) -> A:
+        return A(param)
+
+    container.register_factory(partial(factory, param=1))
+
+    instance = container.resolve(A)
+    assert isinstance(instance, A)
+    assert instance.param == 1
+
+
+def test_singleton_factory(container: Container):
     class A:
         pass
 
-    class B:
-        pass
+    def factory_that_called_once() -> A:
+        return A()
 
-    instance = Dummy()
+    container.register_singleton_factory(factory_that_called_once)
 
-    def factory(a: A, b: B) -> Dummy:
-        return instance
-
-    basic_container.register_class(B)
-    basic_container.register_factory(factory)
-
-    assert basic_container.get_instance(Dummy, a=A()) is instance
+    instance1 = container.resolve(A)
+    instance2 = container.resolve(A)
+    assert instance1 is instance2
 
 
-def test_kwargs_priority(basic_container: Container):
+def test_singleton_class(container: Container):
     class A:
         pass
 
+    container.register_singleton_class(A)
+
+    instance1 = container.resolve(A)
+    instance2 = container.resolve(A)
+    assert instance1 is instance2
+
+
+def test_factory_of_generic(container: Container):
+    class A:
+        pass
+
+    def factory() -> Type[A]:
+        return A
+
+    container.register_factory(factory)
+    assert container.resolve(Type[A]) == A
+
+
+def test_factory_of_weird_type(container: Container):
+    class A:
+        pass
+
+    instance = A()
+
+    def factory() -> List[Optional[A]]:
+        return [instance, None]
+
+    container.register_factory(factory)
+    assert container.resolve(List[Optional[A]]) == [instance, None]
+
+    # TODO: make it possible?
+    # assert container.resolve(List[A]]) == [instance]
+
+
+def test_inheritance_resolution(container: Container):
+    class A:
+        pass
+
+    class ChildOfA(A):
+        pass
+
+    container.register_class(ChildOfA)
+    assert isinstance(container.resolve(A), ChildOfA)
+
+
+def test_resolution_provides_a_container(container: Container):
+    class A:
+        pass
+
+    def factory(c: Container) -> A:
+        assert c is container
+        return A()
+
+    container.register_factory(factory)
+    assert isinstance(container.resolve(A), A)
+
+
+def test_resolve_class_dependencies(container: Container):
     class B:
         pass
 
-    instance = Dummy()
+    class A:
+        def __init__(self, b: B):
+            self.b = b
+
     b_instance = B()
+    container.register_instance(b_instance)
+    container.register_class(A)
+    a_instance = container.resolve(A)
 
-    def factory(a: A, b: B) -> Dummy:
-        instance.b = b
-        return instance
+    assert a_instance.b is b_instance
 
-    basic_container.register_class(B)
-    basic_container.register_factory(factory)
 
-    dummy = basic_container.get_instance(Dummy, a=A(), b=b_instance)
-    assert dummy.b is b_instance
+def test_resolve_factory_dependencies(container: Container):
+    class B:
+        pass
+
+    class A:
+        def __init__(self, b: B):
+            self.b = b
+
+    def factory(b: B) -> A:
+        return A(b)
+
+    b_instance = B()
+    container.register_instance(b_instance)
+    container.register_factory(factory)
+    a_instance = container.resolve(A)
+
+    assert a_instance.b is b_instance
+
+
+def test_missing_dependencies_raises_error(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    class C:
+        def __init__(self, a: A, b: B):
+            self.a = a
+            self.b = b
+
+    container.register_class(B)
+    container.register_class(C)
+    with pytest.raises(TypeError):
+        container.resolve(C)
+
+
+def test_invalid_annotations_still_resolves(container: Container):
+    class A:
+        def __init__(self, param: 123):
+            self.param = param
+
+    container.register_factory(partial(A, "wtf?"))
+    container.resolve(A)
+
+
+# region: Union
+
+
+def test_union_types_resolution_first_available(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    container.register_class(A)
+    assert isinstance(container.resolve(Union[A, B]), A)
+
+
+def test_union_types_resolution_when_one_provided(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    container.register_class(B)
+    assert isinstance(container.resolve(Union[A, B]), B)
+
+
+def test_union_types_resolution_raises_when_none_provided(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    with pytest.raises(ResolutionError):
+        container.resolve(Union[A, B])
+
+
+def test_union_types_resolution_with_none(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    assert container.resolve(Union[A, B, None]) is None
+
+
+def test_factory_returns_union(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    def factory() -> Union[A, B]:
+        return A()
+
+    container.register_factory(factory)
+
+    assert isinstance(container.resolve(A), A)
+    assert isinstance(container.resolve(Union[A, B]), A)
+    assert isinstance(container.resolve(Union[B, A]), A)
+    assert isinstance(container.resolve(Optional[A]), A)
+
+    with pytest.raises(ResolutionError):
+        container.resolve(B)
+
+
+# endregion: Union
+
+# region: Optional
+
+
+def test_optional_provider_optional_query_is_none(container: Container):
+    class A:
+        pass
+
+    def factory() -> Optional[A]:
+        return None
+
+    container.register_factory(factory)
+    assert container.resolve(Optional[A]) is None
+
+
+def test_optional_provider_optional_query_ret_obj(container: Container):
+    class A:
+        pass
+
+    def factory() -> Optional[A]:
+        return A()
+
+    container.register_factory(factory)
+    assert isinstance(container.resolve(Optional[A]), A)
+
+
+def test_optional_provider_non_optional_requester_ret_none(container: Container):
+    class A:
+        pass
+
+    def factory() -> Optional[A]:
+        return None
+
+    container.register_factory(factory)
+    with pytest.raises(ResolutionError):
+        container.resolve(A)
+
+
+def test_optional_provider_non_optional_requester_ret_obj(container: Container):
+    class A:
+        pass
+
+    def factory() -> Optional[A]:
+        return A()
+
+    container.register_factory(factory)
+    assert isinstance(container.resolve(A), A)
+
+
+# endregion: Optional
+
+# region: Collections
+
+
+def test_resolve_list_of_instances(container: Container):
+    class A:
+        pass
+
+    instance1 = A()
+    instance2 = A()
+
+    container.register_instance(instance1)
+    container.register_instance(instance2)
+
+    expected = [instance2, instance1]
+
+    assert container.get_all_instances(A) == expected
+    assert list(container.iter_all_instances(A)) == expected
+    assert container.resolve(List[A]) == expected
+    assert list(container.resolve(Iterable[A])) == expected
+
+
+def test_resolve_inheritance_list_instances_by_parent(container: Container):
+    class Parent:
+        pass
+
+    class A(Parent):
+        pass
+
+    class B(Parent):
+        pass
+
+    instance_a = A()
+    instance_b = B()
+
+    container.register_instance(instance_a)
+    container.register_instance(instance_b)
+
+    expected = [instance_b, instance_a]
+
+    assert container.get_all_instances(Parent) == expected
+    assert list(container.iter_all_instances(Parent)) == expected
+    assert container.resolve(List[Parent]) == expected
+    assert list(container.resolve(Iterable[Parent])) == [instance_b, instance_a]
+
+
+def test_resolve_list_of_singleton_class_instances(container: Container):
+    class A:
+        pass
+
+    container.register_singleton_class(A)
+
+    singleton_instance = container.resolve(A)
+
+    expected = [singleton_instance]
+
+    assert container.get_all_instances(A) == expected
+    assert list(container.iter_all_instances(A)) == expected
+    assert container.resolve(List[A]) == expected
+    assert list(container.resolve(Iterable[A])) == expected
+
+
+def test_resolve_list_of_union_instances(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    instance_a1 = A()
+    instance_a2 = A()
+    instance_b1 = B()
+    instance_b2 = B()
+
+    container.register_instance(instance_a1)
+    container.register_instance(instance_a2)
+    container.register_instance(instance_b1)
+    container.register_instance(instance_b2)
+
+    expected = [
+        instance_a2,
+        instance_a1,
+        instance_b2,
+        instance_b1,
+    ]
+
+    query = Union[A, B]
+    assert container.get_all_instances(query) == expected
+    assert list(container.iter_all_instances(query)) == expected
+    assert container.resolve(List[query]) == expected
+    assert list(container.resolve(Iterable[query])) == expected
+
+
+def test_resolve_union_of_lists(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    instance_a1 = A()
+    instance_a2 = A()
+    instance_b1 = B()
+    instance_b2 = B()
+
+    container.register_instance(instance_a1)
+    container.register_instance(instance_a2)
+    container.register_instance(instance_b1)
+    container.register_instance(instance_b2)
+
+    assert container.resolve(Union[List[A], List[B]]) == [instance_a2, instance_a1]
+
+
+def test_list_of_none(container: Container):
+    assert container.resolve(List[None]) == [None]
+
+
+def test_list_of_basic_types(container: Container):
+    container.register_instance(1)
+    container.register_instance(3.0)
+    assert container.resolve(List[Union[int, float]]) == [1, 3.0]
+
+
+def test_inherited_list(container: Container):
+    class A(List[int]):
+        pass
+
+    container.register_instance(A((1, 2, 3)))
+    assert container.resolve(A) == [1, 2, 3]
+
+
+# endregion: Collections

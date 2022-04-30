@@ -5,7 +5,7 @@ with open('README.md', 'r') as f:
 
 setup(
     name='typedi',
-    version='0.5.0',
+    version='0.6.0',
     description='Simple yet powerful typed dependency injection container',
     url='https://github.com/bshishov/typedi',
     author='Boris Shishov',
@@ -19,16 +19,19 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Intended Audience :: Developers',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
         'Operating System :: OS Independent',
         'Topic :: Software Development :: Libraries'
     ],
-    python_requires='>=3.6',
+    python_requires='>=3.7',
     extras_require={
         'dev': [
             'pytest',
+            'black',
+            'mypy',
             'coverage',
             'pytest-cov'
         ]
