@@ -1,6 +1,6 @@
 from typing import Optional, Union, List, Iterable, Type
 import pytest
-from functools import partial
+from functools import partial, wraps, partialmethod
 
 from typedi import Container, ResolutionError
 
@@ -74,6 +74,25 @@ def test_register_partial(container: Container):
     assert instance.param == 1
 
 
+def test_register_partial_method(container: Container):
+    class B:
+        def __init__(self, param):
+            self.param = param
+
+    class A:
+        @classmethod
+        def _create_b(cls, param) -> B:
+            return B(param)
+
+        create_b = partialmethod(_create_b, 1)
+
+    container.register_factory(A.create_b)  # type: ignore
+
+    instance = container.resolve(B)
+    assert isinstance(instance, B)
+    assert instance.param == 1
+
+
 def test_register_partial_factory(container: Container):
     class A:
         def __init__(self, param):
@@ -101,6 +120,39 @@ def test_singleton_factory(container: Container):
     instance1 = container.resolve(A)
     instance2 = container.resolve(A)
     assert instance1 is instance2
+
+
+def decorator(f):
+    @wraps(f)
+    def _inner(*args, **kwargs):
+        return f(*args, **kwargs)
+
+    return _inner
+
+
+def test_register_decorated_factory(container: Container):
+    class B:
+        pass
+
+    class A:
+        pass
+
+    @decorator
+    def factory(b: B) -> A:
+        return A()
+
+    container.register_class(B)
+    container.register_factory(factory)
+    assert isinstance(container.resolve(A), A)
+
+
+def test_decorated_class(container: Container):
+    @decorator
+    class A:
+        pass
+
+    container.register_class(A)
+    assert container.resolve(A)
 
 
 def test_singleton_class(container: Container):
@@ -150,6 +202,70 @@ def test_inheritance_resolution(container: Container):
 
     container.register_class(ChildOfA)
     assert isinstance(container.resolve(A), ChildOfA)
+
+
+def test_register_missing_annotation_raises(container: Container):
+    class A:
+        def __init__(self, foo):
+            self.foo = foo
+
+    with pytest.raises(TypeError):
+        container.register_class(A)
+
+
+def test_register_missing_annotation_with_default_not_raises(container: Container):
+    class A:
+        def __init__(self, foo="bar"):
+            self.foo = foo
+
+    container.register_class(A)
+    assert isinstance(container.resolve(A), A)
+
+
+def test_invalid_annotations_with_default_still_resolves(container: Container):
+    class A:
+        def __init__(self, param: 123):
+            self.param = param
+
+    container.register_factory(partial(A, "wtf?"))
+    container.resolve(A)
+
+
+def test_callable_class_as_factory(container: Container):
+    class A:
+        pass
+
+    class Factory:
+        def __call__(self) -> A:
+            return A()
+
+    container.register_factory(Factory())
+    assert isinstance(container.resolve(A), A)
+
+
+def test_kwargs_are_ignored(container: Container):
+    class A:
+        pass
+
+    def factory(**kwargs) -> A:
+        return A()
+
+    container.register_factory(factory)
+    assert isinstance(container.resolve(A), A)
+
+
+def test_positional_arguments_require_annotation(container: Container):
+    class A:
+        pass
+
+    def factory(*args) -> A:
+        return A()
+
+    with pytest.raises(TypeError):
+        container.register_factory(factory)
+
+
+# region: Dependencies
 
 
 def test_resolution_provides_a_container(container: Container):
@@ -213,18 +329,66 @@ def test_missing_dependencies_raises_error(container: Container):
 
     container.register_class(B)
     container.register_class(C)
-    with pytest.raises(TypeError):
+
+    with pytest.raises(ResolutionError):
         container.resolve(C)
 
 
-def test_invalid_annotations_still_resolves(container: Container):
-    class A:
-        def __init__(self, param: 123):
-            self.param = param
+class ForwardRefUser:
+    def __init__(self, param: "ForwardReferredClass"):
+        self.param = param
 
-    container.register_factory(partial(A, "wtf?"))
-    container.resolve(A)
 
+class ForwardRefUserList:
+    def __init__(self, params: List["ForwardReferredClass"]):
+        self.params = params
+
+
+def forward_ref_factory() -> "ForwardReferredClass":
+    return ForwardReferredClass()
+
+
+def forward_ref_factory_of_generic() -> Type["ForwardReferredClass"]:
+    return ForwardReferredClass
+
+
+class ForwardReferredClass:
+    pass
+
+
+def test_forward_ref_dependencies(container: Container):
+    # ForwardRef evaluation works only
+    # for module-level declarations in the same user as the user class
+    param_instance = ForwardReferredClass()
+    container.register_instance(param_instance)
+    container.register_class(ForwardRefUser)
+    assert container.resolve(ForwardRefUser).param is param_instance
+
+
+def test_forward_ref_list_dependencies(container: Container):
+    # ForwardRef evaluation works only
+    # for module-level declarations in the same user as the user class
+    param_instance = ForwardReferredClass()
+    container.register_instance(param_instance)
+    container.register_class(ForwardRefUserList)
+    assert container.resolve(ForwardRefUserList).params == [param_instance]
+
+
+def test_forward_ref_factory(container: Container):
+    # ForwardRef evaluation works only
+    # for module-level declarations in the same user as the user class
+    container.register_factory(forward_ref_factory)
+    assert isinstance(container.resolve(ForwardReferredClass), ForwardReferredClass)
+
+
+def test_forward_ref_factory_of_generic(container: Container):
+    # ForwardRef evaluation works only
+    # for module-level declarations in the same user as the user class
+    container.register_factory(forward_ref_factory_of_generic)
+    assert container.resolve(Type[ForwardReferredClass]) is ForwardReferredClass
+
+
+# endregion: Dependencies
 
 # region: Union
 
@@ -473,6 +637,23 @@ def test_inherited_list(container: Container):
 
     container.register_instance(A((1, 2, 3)))
     assert container.resolve(A) == [1, 2, 3]
+
+
+def test_args_resolution(container: Container):
+    class B:
+        pass
+
+    class A:
+        def __init__(self, *args: B):
+            self.args = args
+
+    instance1 = B()
+    instance2 = B()
+    container.register_instance(instance1)
+    container.register_instance(instance2)
+    container.register_class(A)
+    print(container.resolve(A).args)
+    assert container.resolve(A).args == (instance2, instance1)
 
 
 # endregion: Collections
