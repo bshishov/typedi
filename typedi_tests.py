@@ -652,8 +652,78 @@ def test_args_resolution(container: Container):
     container.register_instance(instance1)
     container.register_instance(instance2)
     container.register_class(A)
-    print(container.resolve(A).args)
     assert container.resolve(A).args == (instance2, instance1)
 
 
 # endregion: Collections
+
+# region: Recursion
+
+
+class A:
+    def __init__(self, a: "A"):
+        self.a = a
+
+
+def test_self_recursive_class(container: Container):
+    container.register_class(A)
+    instance = container.resolve(A)
+    assert isinstance(instance, A)
+    assert isinstance(instance.a, A)
+
+
+class ARequiresB:
+    def __init__(self, b: "BRequiresA"):
+        self.b = b
+
+
+class BRequiresA:
+    def __init__(self, a: ARequiresB):
+        self.a = a
+
+
+def test_circular_dependency_classes(container: Container):
+    container.register_class(ARequiresB)
+    container.register_class(BRequiresA)
+
+    a_instance = container.resolve(ARequiresB)
+    assert isinstance(a_instance, ARequiresB)
+    assert isinstance(a_instance.b, BRequiresA)
+
+    b_instance = container.resolve(BRequiresA)
+    assert isinstance(b_instance, BRequiresA)
+    assert isinstance(b_instance.a, ARequiresB)
+
+
+def test_circular_dependency_factories(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    calls = []
+
+    def factory_of_a(b: B) -> A:
+        calls.append("factory_of_a")
+        return A()
+
+    def factory_of_b(a: A) -> B:
+        calls.append("factory_of_b")
+        return B()
+
+    container.register_factory(factory_of_a)
+    container.register_factory(factory_of_b)
+
+    a_instance = container.resolve(A)
+    assert isinstance(a_instance, A)
+
+    assert calls == ["factory_of_b", "factory_of_a"]
+
+    b_instance = container.resolve(B)
+    assert isinstance(b_instance, B)
+
+    assert calls == ["factory_of_b", "factory_of_a", "factory_of_a", "factory_of_b"]
+
+
+# endregion
