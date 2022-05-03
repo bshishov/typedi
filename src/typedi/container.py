@@ -12,8 +12,9 @@ from typing import (
     Type,
 )
 from abc import ABCMeta, abstractmethod
-from collections import defaultdict, abc as collections_abc
+from collections import defaultdict
 import inspect
+import warnings
 
 from typedi.object_proxy import ObjectProxy
 from typedi.typing_utils import (
@@ -21,250 +22,13 @@ from typedi.typing_utils import (
     type_forward_ref_scope,
     eval_type,
     ForwardRef,
-    get_origin,
-    unwrap_decorators,
 )
+from typedi.resolution import *
 
-__all__ = ["Container", "ResolutionError"]
+__all__ = ["Container"]
 
 
 T = TypeVar("T")
-
-
-class IInstanceResolver:
-    def resolve_single_instance(self, type_: "TerminalType[T]") -> T:
-        raise NotImplementedError
-
-    def iterate_instances(self, type_: "TerminalType[T]") -> Iterable[T]:
-        raise NotImplementedError
-
-
-class MetaType(Generic[T]):
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        raise NotImplemented
-
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
-        raise NotImplemented
-
-    def resolve_single_instance(self, resolver: IInstanceResolver) -> T:
-        raise NotImplementedError
-
-    def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[T]:
-        raise NotImplementedError
-
-
-class TerminalType(Generic[T], MetaType[T], metaclass=ABCMeta):
-    """The type that cannot be further decomposed.
-
-    Example: int, object, SomeClass, Type[SomeClass]
-    """
-
-    @abstractmethod
-    def type_check_object(self, obj: object) -> bool:
-        pass
-
-
-_TObject = TypeVar("_TObject", bound=object)
-
-
-class ClassType(Generic[_TObject], TerminalType[_TObject]):
-    """Classes"""
-
-    __slots__ = "type"
-
-    def __init__(self, type_: Type[_TObject]):
-        assert isinstance(type_, type)
-        self.type = type_
-
-    def type_check_object(self, obj: object) -> bool:
-        if type(obj) == ObjectProxy:
-            return True
-        return isinstance(obj, self.type)
-
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        if isinstance(other, ClassType):
-            return issubclass(other.type, self.type)
-        return False
-
-    def iterate_possible_terminal_types(self) -> Iterable["ClassType[Any]"]:
-        for base in self.type.__mro__[:-1]:
-            yield ClassType[Any](base)
-
-    def resolve_single_instance(self, resolver: IInstanceResolver) -> _TObject:
-        return resolver.resolve_single_instance(self)
-
-    def iterate_resolved_instances(
-        self, resolver: IInstanceResolver
-    ) -> Iterable[_TObject]:
-        return resolver.iterate_instances(self)
-
-    def __str__(self) -> str:
-        return self.type.__qualname__
-
-    def __hash__(self) -> int:
-        return hash(self.type)
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, ClassType) and self.type == other.type
-
-
-class NoneTerminalType(TerminalType[None]):
-    def iterate_possible_terminal_types(self) -> Iterable["NoneTerminalType"]:
-        yield self
-
-    def type_check_object(self, obj: object) -> bool:
-        return obj is None
-
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        return isinstance(other, NoneTerminalType)
-
-    def resolve_single_instance(self, resolver: IInstanceResolver) -> None:
-        return None
-
-    def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[None]:
-        yield None
-
-
-class GenericTerminalType(TerminalType[Any]):
-    __slots__ = "type"
-
-    def __init__(self, type_: Type[Any]):
-        self.type = type_
-
-    def iterate_possible_terminal_types(self) -> Iterable["GenericTerminalType"]:
-        yield self
-
-    def type_check_object(self, obj: object) -> bool:
-        # Naive optimistic resolution
-        return isinstance(obj, get_origin(self.type))
-
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        return isinstance(other, GenericTerminalType) and self.type == other.type
-
-    def resolve_single_instance(self, resolver: IInstanceResolver) -> object:
-        return resolver.resolve_single_instance(self)
-
-    def iterate_resolved_instances(
-        self, resolver: IInstanceResolver
-    ) -> Iterable[object]:
-        return resolver.iterate_instances(self)
-
-    def __str__(self) -> str:
-        return str(self.type)
-
-    def __hash__(self) -> int:
-        return hash(self.type)
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, GenericTerminalType) and self.type == other.type
-
-
-class UnionType(Generic[T], MetaType[T]):
-    __slots__ = "types"
-
-    def __init__(self, *types: MetaType[T]) -> None:
-        self.types = types
-
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        for t in self.types:
-            if t.can_handle(other):
-                return True
-        return False
-
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
-        for t in self.types:
-            for possible in t.iterate_possible_terminal_types():
-                yield possible
-
-    def resolve_single_instance(self, resolver: IInstanceResolver) -> T:
-        for t in self.types:
-            try:
-                return t.resolve_single_instance(resolver)
-            except ResolutionError:
-                pass
-
-        raise ResolutionError(self)
-
-    def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[T]:
-        for t in self.types:
-            yield from t.iterate_resolved_instances(resolver)
-
-    def __str__(self) -> str:
-        return "Union[" + ", ".join(str(t) for t in self.types) + "]"
-
-
-class ListType(Generic[T], MetaType[List[T]]):
-    __slots__ = "type"
-
-    def __init__(self, type_: MetaType[T]) -> None:
-        self.type = type_
-
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        return self.type.can_handle(other)
-
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
-        return self.type.iterate_possible_terminal_types()
-
-    def resolve_single_instance(self, resolver: IInstanceResolver) -> List[T]:
-        return list(self.type.iterate_resolved_instances(resolver))
-
-    def iterate_resolved_instances(
-        self, resolver: IInstanceResolver
-    ) -> Iterable[List[T]]:
-        yield list(self.type.iterate_resolved_instances(resolver))
-
-    def __str__(self) -> str:
-        return f"List[{self.type}]"
-
-
-class IterableType(Generic[T], MetaType[Iterable[T]]):
-    __slots__ = "type"
-
-    def __init__(self, type_: MetaType[T]) -> None:
-        self.type = type_
-
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        return self.type.can_handle(other)
-
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
-        return self.type.iterate_possible_terminal_types()
-
-    def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[T]:
-        return self.type.iterate_resolved_instances(resolver)
-
-    def iterate_resolved_instances(
-        self, resolver: IInstanceResolver
-    ) -> Iterable[Iterable[T]]:
-        yield self.type.iterate_resolved_instances(resolver)
-
-    def __str__(self) -> str:
-        return f"List[{self.type}]"
-
-
-def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
-    type_ = unwrap_decorators(type_)
-
-    if type_ is type(None):
-        return NoneTerminalType()  # type: ignore
-
-    if isinstance(type_, type):
-        return ClassType[T](type_)
-
-    if hasattr(type_, "__origin__"):
-        origin = type_.__origin__
-        if origin == Union:
-            return UnionType(*(python_type_to_meta(t) for t in type_.__args__))
-
-        if issubclass(origin, collections_abc.Sequence):
-            return ListType(python_type_to_meta(type_.__args__[0]))
-
-        if issubclass(origin, collections_abc.Iterable):
-            return IterableType(python_type_to_meta(type_.__args__[0]))
-
-        # Other generics
-        return GenericTerminalType(type_)
-
-    raise TypeError(f"Unresolvable type {type_}")
 
 
 class CachedStorage:
@@ -274,8 +38,8 @@ class CachedStorage:
         ] = defaultdict(list)
 
     def add(self, provider: "InstanceProvider[Any]") -> None:
-        for just_type in provider.get_type().iterate_possible_terminal_types():
-            self.providers_index[just_type].append(provider)
+        for terminal_type in provider.get_type().iterate_possible_terminal_types():
+            self.providers_index[terminal_type].append(provider)
 
     def query(self, type_: TerminalType[T]) -> Iterable["InstanceProvider[T]"]:
         for provider in reversed(self.providers_index[type_]):
@@ -283,11 +47,11 @@ class CachedStorage:
 
 
 class InstanceResolver(IInstanceResolver):
-    __slots__ = "storage", "container"
+    __slots__ = "_storage", "_instances_cache"
 
-    def __init__(self, storage: CachedStorage, container: "Container") -> None:
-        self.storage = storage
-        self.container = container
+    def __init__(self, storage: CachedStorage) -> None:
+        self._storage = storage
+        self._provider_results_cache: Dict[InstanceProvider[Any], object] = {}
 
     def resolve_single_instance(self, type_: "TerminalType[T]") -> T:
         for instance in self.iterate_instances(type_):
@@ -295,10 +59,41 @@ class InstanceResolver(IInstanceResolver):
         raise ResolutionError(type_)
 
     def iterate_instances(self, type_: "TerminalType[T]") -> Iterable[T]:
-        for provider in self.storage.query(type_):
-            instance_or_iterable = provider.get_instance(self.container)
-            for item in filter_instances_of_terminal_type(instance_or_iterable, type_):
-                yield item
+        for provider in self._storage.query(type_):
+            # To reduce calls to expensive providers
+            # We simply cache results of .get_instance() calls
+            if provider in self._provider_results_cache:
+                provider_result = self._provider_results_cache[provider]
+            else:
+                # Creating instance could result in recursive calls to iterate_instances.
+                # Firstly, we create a proxy object and cache it such that recursive call
+                # will hit the cache and use it for further evaluation.
+                # It is sort of pre-allocation of the object.
+                proxy = ObjectProxy.__new__(ObjectProxy)
+                self._provider_results_cache[provider] = proxy
+
+                # Then, we construct an actual genuine instance.
+                # Factories and object __init__ methods are called inside.
+                provider_result = provider.get_instance(self)
+
+                # Generators need a special treatment.
+                # Since provided instances could be used multiple times
+                # in order to cache them we need to evaluate them first
+                # making cache idempotent.
+                if inspect.isgenerator(provider_result):
+                    provider_result = tuple(provider_result)
+
+                # Once real instance is created we can initialize proxy and make it behave exactly as
+                # original instance (see ObjectProxy implementation)
+                proxy.__init__(provider_result)
+
+                # Put actual result in cache so that nobody will use proxies anymore
+                self._provider_results_cache[provider] = provider_result
+
+            # Not all instances match the query.
+            # i.e. Provider is f() -> Union[A, B], and request type is just A
+            for instance in filter_instances_of_terminal_type(provider_result, type_):
+                yield instance
 
 
 def filter_instances_of_terminal_type(
@@ -309,11 +104,6 @@ def filter_instances_of_terminal_type(
     elif hasattr(obj, "__iter__"):
         for item in obj:  # type: ignore
             yield from filter_instances_of_terminal_type(item, type_)
-
-
-class ResolutionError(TypeError):
-    def __init__(self, t: MetaType[Any]):
-        super().__init__(f"Container is not able to resolve type: {t}")
 
 
 class Container:
@@ -340,26 +130,62 @@ class Container:
     def register_singleton_class(self, cls: type) -> None:
         self.register_singleton_factory(cls)
 
-    def resolve(self, type_: Type[T]) -> T:
-        meta_type = python_type_to_meta(type_)
-        return meta_type.resolve_single_instance(InstanceResolver(self._storage, self))
+    def resolve(self, query: Type[T]) -> T:
+        """Resolves instance (or collection of instances) of specified query.
 
-    def get_all_instances(self, type_: Type[T]) -> List[T]:
-        meta_type = python_type_to_meta(type_)
+        Examples:
+
+            resolve(A)
+                Will find the latest registered instance of type A
+                or raise ResolutionError if resolution is not possible
+
+            resolve(Union[A, B])
+                Will find instance of either type A or B
+                (resolution performs left to right)
+                or raise ResolutionError if resolution is not possible
+
+            resolve(Optional[A])
+                Same as resolve(Union[A, None])
+                Will try to find the latest registered instance of type A
+                or return None (a valid instance of type(None))
+
+            resolve(List[A])
+                Will resolve into a list by performing resolution of A.
+                If there are no instances of A returns an empty list.
+
+            resolve(Iterable[A])
+                Will resolve into an iterator by performing resolution of A.
+                If there are no instances of A returns an empty iterable.
+
+        :param: query: Query to resolve.
+        :raises: ResolutionError: When container is unable to resolve the query
+        :returns: Resolved instance or collection
+        """
+        meta_type = python_type_to_meta(query)
+        return meta_type.resolve_single_instance(InstanceResolver(self._storage))
+
+    def get_all_instances(self, query: Type[T]) -> List[T]:
+        meta_type = python_type_to_meta(query)
         return list(
-            meta_type.iterate_resolved_instances(InstanceResolver(self._storage, self))
+            meta_type.iterate_resolved_instances(InstanceResolver(self._storage))
         )
 
-    def iter_all_instances(self, type_: Type[T]) -> Iterable[T]:
-        meta_type = python_type_to_meta(type_)
-        return meta_type.iterate_resolved_instances(
-            InstanceResolver(self._storage, self)
+    def iter_all_instances(self, query: Type[T]) -> Iterable[T]:
+        meta_type = python_type_to_meta(query)
+        return meta_type.iterate_resolved_instances(InstanceResolver(self._storage))
+
+    def get_instance(self, query: Type[T]) -> T:
+        warnings.warn(
+            ".get_instance() method is deprecated, use .resolve() instead",
+            DeprecationWarning,
+            stacklevel=2,
         )
+        return self.resolve(query)
 
 
 class InstanceProvider(Generic[T], metaclass=ABCMeta):
     @abstractmethod
-    def get_instance(self, container: Container) -> T:
+    def get_instance(self, resolver: IInstanceResolver) -> T:
         pass
 
     @abstractmethod
@@ -373,11 +199,20 @@ class ConstInstanceProvider(InstanceProvider[T]):
     def __init__(self, instance: T):
         self._instance = instance
 
-    def get_instance(self, container: Container) -> T:
+    def get_instance(self, resolver: IInstanceResolver) -> T:
         return self._instance
 
     def get_type(self) -> MetaType[T]:
         return ClassType[T](type(self._instance))
+
+    def __hash__(self) -> int:
+        return hash(("ConstInstanceProvider", id(self._instance)))
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, ConstInstanceProvider)
+            and self._instance == other._instance
+        )
 
 
 class FactoryInstanceProvider(InstanceProvider[T]):
@@ -426,7 +261,7 @@ class FactoryInstanceProvider(InstanceProvider[T]):
                 )
         return annotations
 
-    def _get_instance(self, container: Container) -> T:
+    def get_instance(self, resolver: IInstanceResolver) -> T:
         args: Tuple[Any, ...] = tuple()
         kwargs = {}
 
@@ -436,13 +271,17 @@ class FactoryInstanceProvider(InstanceProvider[T]):
             has_default,
         ) in self._annotations.items():
             # ForwardRef evaluation for module-level declarations in the same module as the user class
-            param_annotation = eval_type(param_annotation, globals(), self._eval_scope)
+            param_annotation = python_type_to_meta(
+                eval_type(param_annotation, globals(), self._eval_scope)
+            )
 
             try:
                 if is_var_positional:
-                    args = tuple(container.iter_all_instances(param_annotation))
+                    args = tuple(param_annotation.iterate_resolved_instances(resolver))
                 else:
-                    kwargs[param_name] = container.resolve(param_annotation)
+                    kwargs[param_name] = param_annotation.resolve_single_instance(
+                        resolver
+                    )
             except ResolutionError:
                 if not has_default:
                     # There is no default for this parameter and container was unable to resolve the type.
@@ -452,37 +291,14 @@ class FactoryInstanceProvider(InstanceProvider[T]):
 
         return self._factory(*args, **kwargs)
 
-    def get_instance(self, container: Container) -> T:
-        # Resolution of the type might be recursive.
-        # Instead of completely preventing recursive and circular references
-        # we substitute the object with its uninitialized proxy.
-        # Consider this trickery as late object initialization.
+    def __hash__(self) -> int:
+        return hash(("FactoryInstanceProvider", self._factory))
 
-        # If the proxy is available (i.e. recursive call)
-        # return the proxy.
-        # By doing this we prevent infinite recursion of get_instance() calls
-        if self._proxy_recursion_guard is not None:
-            return self._proxy_recursion_guard  # type: ignore
-
-        # First - construct uninitialized proxy.
-        # __init__ is not called on purpose - it will make actual object
-        # unusable until it is completely initialized.
-        self._proxy_recursion_guard = ObjectProxy.__new__(ObjectProxy)
-        try:
-            # Actual instance creation proxies aside
-            instance = self._get_instance(container)
-
-            # Since we have an instance - initialize the proxy
-            # by actual instance.
-            # This will make proxy completely mimic actual instance.
-            self._proxy_recursion_guard.__init__(instance)
-
-            # This is a `true` get_instance call - return actual unproxied instance
-            return instance
-        finally:
-            # After instance is successfully created or an exception occurred
-            # Clear the guard so that next call won't utilize this proxy
-            self._proxy_recursion_guard = None
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, FactoryInstanceProvider)
+            and self._factory == other._factory
+        )
 
 
 class SingletonInstanceProvider(InstanceProvider[T]):
@@ -492,10 +308,19 @@ class SingletonInstanceProvider(InstanceProvider[T]):
         self._provider = provider
         self._instance: Union[T, None] = None
 
-    def get_instance(self, container: Container) -> T:
+    def get_instance(self, resolver: InstanceResolver) -> T:
         if self._instance is None:
-            self._instance = self._provider.get_instance(container)
+            self._instance = self._provider.get_instance(resolver)
         return self._instance
 
     def get_type(self) -> MetaType[T]:
         return self._provider.get_type()
+
+    def __hash__(self) -> int:
+        return hash(("SingletonInstanceProvider", self._provider))
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, SingletonInstanceProvider)
+            and self._provider == other._provider
+        )

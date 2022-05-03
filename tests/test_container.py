@@ -1,4 +1,4 @@
-from typing import Optional, Union, List, Iterable, Type
+from typing import Optional, Union, List, Iterable, Type, Tuple
 import pytest
 from functools import partial, wraps, partialmethod
 
@@ -655,6 +655,61 @@ def test_args_resolution(container: Container):
     assert container.resolve(A).args == (instance2, instance1)
 
 
+def test_iterable_factory_provides_multiply_instances(container: Container):
+    class A:
+        pass
+
+    instances = [A() for _ in range(3)]
+
+    def factory() -> Iterable[A]:
+        return instances
+
+    container.register_factory(factory)
+    assert container.resolve(List[A]) == instances
+    assert list(container.resolve(Iterable[A])) == instances
+    assert container.get_all_instances(A) == instances
+    assert list(container.iter_all_instances(A)) == instances
+
+
+def test_iterable_factory_of_union_type_provides_multiply_instances(
+    container: Container,
+):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    a1 = A()
+    a2 = A()
+    b1 = B()
+    b2 = B()
+
+    a_instances = [a1, a2]
+    b_instances = [b1, b2]
+
+    def factory() -> Iterable[Union[A, B]]:
+        yield a1
+        yield b1
+        yield a2
+        yield b2
+
+    container.register_factory(factory)
+
+    assert container.resolve(List[A]) == a_instances
+    assert list(container.resolve(Iterable[A])) == a_instances
+    assert container.get_all_instances(A) == a_instances
+    assert list(container.iter_all_instances(A)) == a_instances
+
+    assert container.resolve(List[B]) == b_instances
+    assert list(container.resolve(Iterable[B])) == b_instances
+    assert container.get_all_instances(B) == b_instances
+    assert list(container.iter_all_instances(B)) == b_instances
+
+    assert container.resolve(List[Union[A, B]]) == [a1, a2, b1, b2]
+    assert container.get_all_instances(Union[A, B]) == [a1, a2, b1, b2]
+
+
 # endregion: Collections
 
 # region: Recursion
@@ -724,6 +779,39 @@ def test_circular_dependency_factories(container: Container):
     assert isinstance(b_instance, B)
 
     assert calls == ["factory_of_b", "factory_of_a", "factory_of_a", "factory_of_b"]
+
+
+def test_circular_dependency_generator_factories(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    class C:
+        pass
+
+    calls = []
+
+    def factory1(c: C) -> Iterable[Union[A, B]]:
+        calls.append("factory1")
+        yield A()
+        yield B()
+
+    def factory2(a: A, b: B) -> Iterable[C]:
+        calls.append("factory2")
+        yield C()
+
+    container.register_factory(factory1)
+    container.register_factory(factory2)
+
+    a, b, c = container.resolve(Tuple[A, B, C])
+
+    assert isinstance(a, A)
+    assert isinstance(b, B)
+    assert isinstance(c, C)
+
+    assert calls == ["factory2", "factory1"]
 
 
 # endregion

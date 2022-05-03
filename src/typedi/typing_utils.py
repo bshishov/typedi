@@ -19,10 +19,8 @@ __all__ = [
     "unwrap_decorators",
     "get_return_type",
     "type_forward_ref_scope",
-    "matches_query",
     "get_origin",
     "get_args",
-    "is_subclass",
 ]
 
 
@@ -111,22 +109,6 @@ def type_forward_ref_scope(
     return getattr(type_, "__globals__", {})
 
 
-def matches_query(obj: Any, query: Any) -> bool:
-    # if type(obj) == ObjectProxy:
-    # return True
-
-    # Note: not taking Union into account
-    # because it is already resolved in Container._resolve_all_instances
-    if isinstance(query, type):
-        return isinstance(obj, query)
-
-    if get_origin(query) == type(obj):
-        # Optimistic Generic check
-        return True
-
-    return False
-
-
 def get_origin(type_: Any) -> Any:
     """Get unsubscribed version of `type_`.
     Examples:
@@ -157,21 +139,3 @@ def get_args(type_: Any) -> Tuple[Any, ...]:
         get_args(Callable[[], T][int]) == ([], int)
     """
     return getattr(type_, "__args__", tuple())
-
-
-def is_subclass(left: Any, right: type) -> bool:
-    """Modified `issubclass` to support generics and other types.
-    __origin__ is being tested for generics
-    right value should be a class
-    Examples:
-
-        is_subclass(typing.List[int], collections.abc.Sequence) == True
-        is_subclass(typing.List, collections.abc.Sequence) == True
-        is_subclass(typing.Tuple, collections.abc.Sequence) == True
-        is_subclass(typing.Any, collections.abc.Sequence) == False
-        is_subclass(int, collections.abc.Sequence) == False
-    """
-    try:
-        return issubclass(getattr(left, "__origin__", left), right)
-    except TypeError:
-        return False
