@@ -298,9 +298,12 @@ class TupleType(TerminalType[Any], MetaType[Any]):
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[Any]:
         try:
+            # First, try resolve tuple as terminal.
+            # There might be an instance with exact tuple type registered.
             return resolver.resolve_single_instance(self)
         except ResolutionError:
-            # Auto-resolve tuple if not present
+            # Auto-resolve tuple if not present.
+            # It is simply instance resolution of separate tuple arguments combined.
             return tuple(arg.resolve_single_instance(resolver) for arg in self.args)
 
     def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[Any]:
