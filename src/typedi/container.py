@@ -95,6 +95,11 @@ class InstanceResolver(IInstanceResolver):
             for instance in filter_instances_of_terminal_type(provider_result, type_):
                 yield instance
 
+    def iterate_all_instances(self) -> Iterable[Any]:
+        for provider_values in self._storage.providers_index.values():
+            for instance in reversed(provider_values):
+                yield instance
+
 
 def filter_instances_of_terminal_type(
     obj: object, type_: TerminalType[T]

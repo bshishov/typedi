@@ -30,6 +30,7 @@ __all__ = [
     "ListType",
     "IterableType",
     "TupleType",
+    "AnyType",
     "python_type_to_meta",
 ]
 
@@ -44,6 +45,10 @@ class IInstanceResolver(metaclass=ABCMeta):
 
     @abstractmethod
     def iterate_instances(self, type_: "TerminalType[T]") -> Iterable[T]:
+        pass
+
+    @abstractmethod
+    def iterate_all_instances(self) -> Iterable[Any]:
         pass
 
 
@@ -319,6 +324,34 @@ class TupleType(TerminalType[Any], MetaType[Any]):
         return isinstance(other, TupleType) and self.args == other.args
 
 
+class AnyType(TerminalType[Any]):
+    def can_handle(self, other: "TerminalType[Any]") -> bool:
+        return True
+
+    def type_check_object(self, obj: object) -> bool:
+        return True
+
+    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
+        return ()  # Special case
+
+    def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[Any]:
+        for instance in resolver.iterate_all_instances():
+            return instance
+        raise ResolutionError(self)
+
+    def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[Any]:
+        return resolver.iterate_all_instances()
+
+    def __str__(self) -> str:
+        return f"Any"
+
+    def __hash__(self) -> int:
+        return hash("AnyType")
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, AnyType)
+
+
 @lru_cache(1024)
 def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
     """Converts python types to custom type-system
@@ -340,6 +373,9 @@ def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
     # Generics
     origin = get_origin(type_)
     args = get_args(type_)
+
+    if origin is Any:
+        return AnyType()
 
     if origin is not None and args:
         if origin == Union:
