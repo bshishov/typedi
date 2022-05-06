@@ -72,8 +72,10 @@ class MetaType(Generic[T], metaclass=ABCMeta):
 
 class ResolutionError(TypeError):
     def __init__(self, type_: MetaType[Any]):
-        super().__init__(f"Container is not able to resolve type '{type_}'. "
-                         f"Make sure it is registered in the container.")
+        super().__init__(
+            f"Container is not able to resolve type '{type_}'. "
+            f"Make sure it is registered in the container."
+        )
 
 
 class TerminalType(Generic[T], MetaType[T], metaclass=ABCMeta):
@@ -324,11 +326,8 @@ class TupleType(TerminalType[Any], MetaType[Any]):
         return isinstance(other, TupleType) and self.args == other.args
 
 
-class AnyType(TerminalType[Any]):
+class AnyType(MetaType[Any]):
     def can_handle(self, other: "TerminalType[Any]") -> bool:
-        return True
-
-    def type_check_object(self, obj: object) -> bool:
         return True
 
     def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
@@ -370,12 +369,12 @@ def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
     if isinstance(type_, type):
         return ClassType[T](type_)
 
+    if type_ is Any:
+        return AnyType()
+
     # Generics
     origin = get_origin(type_)
     args = get_args(type_)
-
-    if origin is Any:
-        return AnyType()
 
     if origin is not None and args:
         if origin == Union:

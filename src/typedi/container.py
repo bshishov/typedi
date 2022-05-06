@@ -34,16 +34,22 @@ T = TypeVar("T")
 class CachedStorage:
     def __init__(self) -> None:
         self.providers_index: Dict[
-            TerminalType[Any], List["InstanceProvider[Any]"]
+            TerminalType[Any], List[InstanceProvider[Any]]
         ] = defaultdict(list)
+        self.providers_of_any_type: List[InstanceProvider[Any]] = []
 
     def add(self, provider: "InstanceProvider[Any]") -> None:
-        for terminal_type in provider.get_type().iterate_possible_terminal_types():
-            self.providers_index[terminal_type].append(provider)
+        provider_type = provider.get_type()
+        if isinstance(provider_type, AnyType):
+            self.providers_of_any_type.append(provider)
+        else:
+            for terminal_type in provider.get_type().iterate_possible_terminal_types():
+                self.providers_index[terminal_type].append(provider)
 
     def query(self, type_: TerminalType[T]) -> Iterable["InstanceProvider[T]"]:
         for provider in reversed(self.providers_index[type_]):
             yield provider
+        yield from reversed(self.providers_of_any_type)
 
 
 class InstanceResolver(IInstanceResolver):
@@ -58,37 +64,41 @@ class InstanceResolver(IInstanceResolver):
             return instance
         raise ResolutionError(type_)
 
+    def _get_instance_from_provider(self, provider: "InstanceProvider[T]") -> Any:
+        # To reduce calls to expensive providers
+        # We simply cache results of .get_instance() calls
+        if provider in self._provider_results_cache:
+            provider_result = self._provider_results_cache[provider]
+        else:
+            # Creating instance could result in recursive calls to iterate_instances.
+            # Firstly, we create a proxy object and cache it such that recursive call
+            # will hit the cache and use it for further evaluation.
+            # It is sort of pre-allocation of the object.
+            proxy = ObjectProxy.__new__(ObjectProxy)
+            self._provider_results_cache[provider] = proxy
+
+            # Then, we construct an actual genuine instance.
+            # Factories and object __init__ methods are called inside.
+            provider_result = provider.get_instance(self)
+
+            # Generators need a special treatment.
+            # Since provided instances could be used multiple times
+            # in order to cache them we need to evaluate them first
+            # making cache idempotent.
+            if inspect.isgenerator(provider_result):
+                provider_result = tuple(provider_result)
+
+            # Once real instance is created we can initialize proxy and make it behave exactly as
+            # original instance (see ObjectProxy implementation)
+            proxy.__init__(provider_result)
+
+            # Put actual result in cache so that nobody will use proxies anymore
+            self._provider_results_cache[provider] = provider_result
+        return provider_result
+
     def iterate_instances(self, type_: "TerminalType[T]") -> Iterable[T]:
         for provider in self._storage.query(type_):
-            # To reduce calls to expensive providers
-            # We simply cache results of .get_instance() calls
-            if provider in self._provider_results_cache:
-                provider_result = self._provider_results_cache[provider]
-            else:
-                # Creating instance could result in recursive calls to iterate_instances.
-                # Firstly, we create a proxy object and cache it such that recursive call
-                # will hit the cache and use it for further evaluation.
-                # It is sort of pre-allocation of the object.
-                proxy = ObjectProxy.__new__(ObjectProxy)
-                self._provider_results_cache[provider] = proxy
-
-                # Then, we construct an actual genuine instance.
-                # Factories and object __init__ methods are called inside.
-                provider_result = provider.get_instance(self)
-
-                # Generators need a special treatment.
-                # Since provided instances could be used multiple times
-                # in order to cache them we need to evaluate them first
-                # making cache idempotent.
-                if inspect.isgenerator(provider_result):
-                    provider_result = tuple(provider_result)
-
-                # Once real instance is created we can initialize proxy and make it behave exactly as
-                # original instance (see ObjectProxy implementation)
-                proxy.__init__(provider_result)
-
-                # Put actual result in cache so that nobody will use proxies anymore
-                self._provider_results_cache[provider] = provider_result
+            provider_result = self._get_instance_from_provider(provider)
 
             # Not all instances match the query.
             # i.e. Provider is f() -> Union[A, B], and request type is just A
@@ -96,9 +106,14 @@ class InstanceResolver(IInstanceResolver):
                 yield instance
 
     def iterate_all_instances(self) -> Iterable[Any]:
-        for provider_values in self._storage.providers_index.values():
-            for instance in reversed(provider_values):
+        for providers in self._storage.providers_index.values():
+            for provider in reversed(providers):
+                instance = self._get_instance_from_provider(provider)
                 yield instance
+
+        for provider in reversed(self._storage.providers_of_any_type):
+            instance = self._get_instance_from_provider(provider)
+            yield instance
 
 
 def filter_instances_of_terminal_type(

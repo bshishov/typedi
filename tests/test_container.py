@@ -1,4 +1,4 @@
-from typing import Optional, Union, List, Iterable, Type, Tuple
+from typing import Optional, Union, List, Iterable, Type, Tuple, Any
 import pytest
 from functools import partial, wraps, partialmethod
 
@@ -711,6 +711,36 @@ def test_iterable_factory_of_union_type_provides_multiply_instances(
 
 
 # endregion: Collections
+
+# region: Any
+
+def test_factory_of_any(container: Container):
+    class A:
+        pass
+
+    def factory() -> Any:
+        return A()
+
+    container.register_factory(factory)
+    assert isinstance(container.resolve(A), A)
+
+
+def test_factory_of_any_generator(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    def factory() -> Any:
+        yield A()
+        yield B()
+
+    container.register_factory(factory)
+    assert isinstance(container.resolve(A), A)
+    assert isinstance(container.resolve(B), B)
+
+# endregion: Any
 
 # region: Recursion
 
