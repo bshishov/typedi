@@ -32,6 +32,7 @@ __all__ = [
     "TupleType",
     "AnyType",
     "python_type_to_meta",
+    "type_of",
 ]
 
 
@@ -396,3 +397,28 @@ def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
             return GenericTerminalType(type_)
 
     raise TypeError(f"Unsupported type {type_}")
+
+
+def type_of(obj: object) -> MetaType[Any]:
+    t = type(obj)
+
+    if t is tuple:
+        if not obj:
+            return ClassType(tuple)
+
+        return TupleType(*(type_of(arg) for arg in obj))
+
+    if t is list:
+        if not obj:
+            return ClassType(list)
+
+        types = set()
+        for arg in obj:
+            types.add(type_of(arg))
+
+        if len(types) == 1:
+            one_type = next(iter(types))
+            return ListType(one_type)
+        return ListType(UnionType(*types))
+
+    return python_type_to_meta(type(obj))

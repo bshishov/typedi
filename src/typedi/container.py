@@ -223,7 +223,7 @@ class ConstInstanceProvider(InstanceProvider[T]):
         return self._instance
 
     def get_type(self) -> MetaType[T]:
-        return ClassType[T](type(self._instance))
+        return type_of(self._instance)
 
     def __hash__(self) -> int:
         return hash(("ConstInstanceProvider", id(self._instance)))

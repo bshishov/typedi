@@ -509,6 +509,68 @@ def test_optional_provider_non_optional_requester_ret_obj(container: Container):
 
 # endregion: Optional
 
+# region Tuple
+
+
+def test_tuple_instance_resolution(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    instance = A(), B()
+
+    container.register_instance(instance)
+
+    resolved = container.resolve(Tuple[A, B])
+    assert resolved == instance
+
+    assert container.resolve(A) is instance[0]
+    assert container.resolve(B) is instance[1]
+
+
+def test_factory_of_tuple(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    instance_a = A()
+    instance_b = B()
+
+    def factory() -> Tuple[A, B]:
+        return instance_a, instance_b
+
+    container.register_factory(factory)
+
+    assert container.resolve(Tuple[A, B]) == (instance_a, instance_b)
+    assert container.resolve(A) is instance_a
+    assert container.resolve(B) is instance_b
+
+
+def test_tuple_provisioning(container: Container):
+    class A:
+        pass
+
+    class B:
+        pass
+
+    instance_a = A()
+    instance_b = B()
+
+    container.register_instance(instance_a)
+    container.register_instance(instance_b)
+
+    assert container.resolve(Tuple[A, B]) == (instance_a, instance_b)
+    assert container.resolve(Tuple[B, A]) == (instance_b, instance_a)
+    assert container.resolve(A) is instance_a
+    assert container.resolve(B) is instance_b
+
+
+# endregion Tuple
+
 # region: Collections
 
 
@@ -714,6 +776,7 @@ def test_iterable_factory_of_union_type_provides_multiply_instances(
 
 # region: Any
 
+
 def test_factory_of_any(container: Container):
     class A:
         pass
@@ -739,6 +802,7 @@ def test_factory_of_any_generator(container: Container):
     container.register_factory(factory)
     assert isinstance(container.resolve(A), A)
     assert isinstance(container.resolve(B), B)
+
 
 # endregion: Any
 

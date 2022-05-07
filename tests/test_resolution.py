@@ -64,3 +64,21 @@ T = tp.TypeVar("T")
 def test_python_type_conversions_unsupported_types_raises(py_type: tp.Any):
     with pytest.raises(TypeError):
         python_type_to_meta(py_type)
+
+
+@pytest.mark.parametrize(
+    "obj, expected_type",
+    [
+        ("a", ClassType(str)),
+        (42, ClassType(int)),
+        (None, NoneTerminalType()),
+        ([1, 2, 3], ListType(ClassType(int))),
+        ([], ClassType(list)),
+        (tuple(), ClassType(tuple)),
+        ([1, "string", 3], ListType(UnionType(ClassType(int), ClassType(str)))),
+        ((1, 2, 3), TupleType(ClassType(int), ClassType(int), ClassType(int))),
+        ((1, "string", 3), TupleType(ClassType(int), ClassType(str), ClassType(int))),
+    ],
+)
+def test_type_of(obj, expected_type):
+    assert type_of(obj) == expected_type
