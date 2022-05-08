@@ -16,7 +16,7 @@ __all__ = [
     "BaseType",
     "ResolutionError",
     "ClassType",
-    "NoneTerminalType",
+    "NoneType",
     "GenericTerminalType",
     "UnionType",
     "ListType",
@@ -27,6 +27,8 @@ __all__ = [
     "intersects",
     "as_type",
     "type_of",
+    "NONE_TYPE",
+    "ANY_TYPE",
 ]
 
 
@@ -112,15 +114,15 @@ class ClassType(Generic[_TObject], BaseType[_TObject]):
         return isinstance(other, ClassType) and self.type == other.type
 
 
-class NoneTerminalType(BaseType[None]):
-    def iterate_terminal_types(self) -> Iterable["NoneTerminalType"]:
+class NoneType(BaseType[None]):
+    def iterate_terminal_types(self) -> Iterable["NoneType"]:
         return (self,)
 
     def type_check_object(self, obj: object) -> bool:
         return obj is None
 
     def contains(self, other: "BaseType[Any]") -> bool:
-        return isinstance(other, NoneTerminalType)
+        return isinstance(other, NoneType)
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> None:
         return None
@@ -132,7 +134,7 @@ class NoneTerminalType(BaseType[None]):
         return hash("NoneTerminalType")
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, NoneTerminalType)
+        return isinstance(other, NoneType)
 
 
 class GenericTerminalType(BaseType[Any]):
@@ -391,6 +393,9 @@ def intersects(t1: BaseType[Any], t2: BaseType[Any]) -> bool:
 _NoneType = type(None)
 _ProtocolType = type(Protocol)
 
+ANY_TYPE = AnyType()
+NONE_TYPE = NoneType()
+
 
 @lru_cache(1024)
 def as_type(type_: Type[T]) -> BaseType[T]:
@@ -405,7 +410,7 @@ def as_type(type_: Type[T]) -> BaseType[T]:
     type_ = unwrap_decorators(type_)
 
     if type_ is _NoneType:
-        return NoneTerminalType()  # type: ignore
+        return NONE_TYPE  # type: ignore
 
     if type(type_) is _ProtocolType:  # type: ignore
         return ProtocolType(type_)
@@ -414,7 +419,7 @@ def as_type(type_: Type[T]) -> BaseType[T]:
         return ClassType[T](type_)
 
     if type_ is Any:
-        return AnyType()
+        return ANY_TYPE
 
     # Generics
     origin = get_origin(type_)

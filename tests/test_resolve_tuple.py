@@ -113,7 +113,7 @@ def register_as_separate_factories(container: Container):
         register_as_separate_factories,
     ],
 )
-def test_tuple_instance_resolution(container: Container, register_fn):
+def test_tuple_dynamic_resolution(container: Container, register_fn):
     register_fn(container)
 
     a, b = container.resolve(Tuple[A, B])
@@ -126,3 +126,15 @@ def test_tuple_instance_resolution(container: Container, register_fn):
 
     assert isinstance(container.resolve(A), A)
     assert isinstance(container.resolve(B), B)
+
+    a, (a2, b2), b = container.resolve(Tuple[A, Tuple[A, B], B])
+    assert isinstance(a, A)
+    assert isinstance(b, B)
+    assert isinstance(a2, A)
+    assert isinstance(b2, B)
+
+
+def test_container_tries_resolve_same_tuple_first(container: Container):
+    instance = A(), B()
+    container.register_instance(instance)
+    assert container.resolve(Tuple[A, B]) is instance

@@ -5,16 +5,22 @@ from typedi.resolution import *
 
 
 class A:
-    pass
+    def foo(self):
+        pass
 
 
 class B:
     pass
 
 
+class ChildOfA(A):
+    pass
+
+
 @tp.runtime_checkable
 class AProtocol(tp.Protocol):
-    pass
+    def foo(self):
+        pass
 
 
 @pytest.mark.parametrize(
@@ -23,8 +29,8 @@ class AProtocol(tp.Protocol):
         (int, ClassType(int)),
         (object, ClassType(object)),
         (A, ClassType(A)),
-        (type(None), NoneTerminalType()),
-        (tp.Any, AnyType()),
+        (type(None), NONE_TYPE),
+        (tp.Any, ANY_TYPE),
         (AProtocol, ProtocolType(AProtocol)),
         (tp.Type[A], GenericTerminalType(tp.Type[A])),
         (tp.List[int], ListType(ClassType(int))),
@@ -32,11 +38,11 @@ class AProtocol(tp.Protocol):
         (tp.Iterable[int], IterableType(ClassType(int))),
         (tp.Iterable[A], IterableType(ClassType(A))),
         (tp.Union[A], ClassType(A)),
-        (tp.Union[A, None], UnionType(ClassType(A), NoneTerminalType())),
-        (tp.Optional[A], UnionType(ClassType(A), NoneTerminalType())),
+        (tp.Union[A, None], UnionType(ClassType(A), NONE_TYPE)),
+        (tp.Optional[A], UnionType(ClassType(A), NONE_TYPE)),
         (
             tp.Union[A, B, None],
-            UnionType(ClassType(A), ClassType(B), NoneTerminalType()),
+            UnionType(ClassType(A), ClassType(B), NONE_TYPE),
         ),
         (tp.Tuple[A, B], TupleType(ClassType(A), ClassType(B))),
         (tp.Tuple[A], TupleType(ClassType(A))),
@@ -77,7 +83,7 @@ def test_python_type_conversions_unsupported_types_raises(py_type: tp.Any):
     [
         ("a", ClassType(str)),
         (42, ClassType(int)),
-        (None, NoneTerminalType()),
+        (None, NONE_TYPE),
         ([1, 2, 3], ListType(ClassType(int))),
         ([], ClassType(list)),
         (tuple(), ClassType(tuple)),
@@ -88,3 +94,54 @@ def test_python_type_conversions_unsupported_types_raises(py_type: tp.Any):
 )
 def test_type_of(obj, expected_type):
     assert type_of(obj) == expected_type
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        (ANY_TYPE, NONE_TYPE),
+        (ANY_TYPE, ANY_TYPE),
+        (NONE_TYPE, NONE_TYPE),
+        (ANY_TYPE, ClassType(A)),
+        (ClassType(A), ClassType(ChildOfA)),
+        (ListType(ClassType(A)), ClassType(A)),
+        (ListType(ClassType(A)), ClassType(ChildOfA)),
+        (IterableType(ClassType(A)), ClassType(A)),
+        (IterableType(ClassType(A)), ClassType(ChildOfA)),
+        (UnionType(ClassType(A), NONE_TYPE), ClassType(A)),
+        (UnionType(ClassType(A), NONE_TYPE), ClassType(ChildOfA)),
+        (UnionType(ClassType(A), NONE_TYPE), NONE_TYPE),
+        (TupleType(ClassType(A), ClassType(B)), ClassType(A)),
+        (TupleType(ClassType(A), ClassType(B)), ClassType(ChildOfA)),
+        (TupleType(ClassType(A), ClassType(B)), TupleType(ClassType(A), ClassType(B))),
+        (
+            TupleType(ClassType(A), ClassType(B)),
+            TupleType(ClassType(ChildOfA), ClassType(B)),
+        ),
+        (ProtocolType(AProtocol), ClassType(A)),
+        (ProtocolType(AProtocol), ClassType(ChildOfA)),
+        (ProtocolType(AProtocol), ProtocolType(AProtocol)),
+        (ListType(ProtocolType(AProtocol)), ClassType(ChildOfA)),
+    ],
+)
+def test_contains(a: BaseType[tp.Any], b: BaseType[tp.Any]):
+    assert a.contains(b)
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        (NONE_TYPE, ANY_TYPE),
+        (ClassType(A), ClassType(B)),
+        (ClassType(A), ANY_TYPE),
+        (ClassType(A), NONE_TYPE),
+        (ClassType(ChildOfA), ClassType(A)),
+        (UnionType(ClassType(A), NONE_TYPE), ClassType(B)),
+        (UnionType(ClassType(ChildOfA), NONE_TYPE), ClassType(A)),
+        (TupleType(ClassType(ChildOfA), ClassType(B)), ClassType(A)),
+        (TupleType(ClassType(ChildOfA), ClassType(B)), TupleType(ClassType(A), ClassType(B))),
+        (ProtocolType(AProtocol), ClassType(B)),
+    ]
+)
+def test_not_contains(a: BaseType[tp.Any], b: BaseType[tp.Any]):
+    assert not a.contains(b)
