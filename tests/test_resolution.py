@@ -12,6 +12,11 @@ class B:
     pass
 
 
+@tp.runtime_checkable
+class AProtocol(tp.Protocol):
+    pass
+
+
 @pytest.mark.parametrize(
     "py_type, meta_type",
     [
@@ -20,6 +25,7 @@ class B:
         (A, ClassType(A)),
         (type(None), NoneTerminalType()),
         (tp.Any, AnyType()),
+        (AProtocol, ProtocolType(AProtocol)),
         (tp.Type[A], GenericTerminalType(tp.Type[A])),
         (tp.List[int], ListType(ClassType(int))),
         (tp.List[A], ListType(ClassType(A))),
@@ -36,8 +42,8 @@ class B:
         (tp.Tuple[A], TupleType(ClassType(A))),
     ],
 )
-def test_python_type_valid_conversion(py_type: tp.Any, meta_type: MetaType[tp.Any]):
-    assert python_type_to_meta(py_type) == meta_type
+def test_python_type_valid_conversion(py_type: tp.Any, meta_type: BaseType[tp.Any]):
+    assert as_type(py_type) == meta_type
 
 
 T = tp.TypeVar("T")
@@ -63,7 +69,7 @@ T = tp.TypeVar("T")
 )
 def test_python_type_conversions_unsupported_types_raises(py_type: tp.Any):
     with pytest.raises(TypeError):
-        python_type_to_meta(py_type)
+        as_type(py_type)
 
 
 @pytest.mark.parametrize(

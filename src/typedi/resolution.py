@@ -1,15 +1,8 @@
-from typing import (
-    Iterable,
-    Any,
-    List,
-    Union,
-    Generic,
-    TypeVar,
-    Type,
-)
+from typing import Iterable, Any, List, Union, Generic, TypeVar, Type, Protocol
 from abc import ABCMeta, abstractmethod
 from collections import abc as collections_abc
 from functools import lru_cache
+from itertools import product
 
 from typedi.object_proxy import ObjectProxy
 from typedi.typing_utils import (
@@ -20,9 +13,8 @@ from typedi.typing_utils import (
 
 __all__ = [
     "IInstanceResolver",
-    "MetaType",
+    "BaseType",
     "ResolutionError",
-    "TerminalType",
     "ClassType",
     "NoneTerminalType",
     "GenericTerminalType",
@@ -31,7 +23,9 @@ __all__ = [
     "IterableType",
     "TupleType",
     "AnyType",
-    "python_type_to_meta",
+    "ProtocolType",
+    "intersects",
+    "as_type",
     "type_of",
 ]
 
@@ -41,25 +35,21 @@ T = TypeVar("T")
 
 class IInstanceResolver(metaclass=ABCMeta):
     @abstractmethod
-    def resolve_single_instance(self, type_: "TerminalType[T]") -> T:
+    def resolve_single_instance(self, type_: "BaseType[T]") -> T:
         pass
 
     @abstractmethod
-    def iterate_instances(self, type_: "TerminalType[T]") -> Iterable[T]:
-        pass
-
-    @abstractmethod
-    def iterate_all_instances(self) -> Iterable[Any]:
+    def iterate_instances(self, type_: "BaseType[T]") -> Iterable[T]:
         pass
 
 
-class MetaType(Generic[T], metaclass=ABCMeta):
+class BaseType(Generic[T], metaclass=ABCMeta):
     @abstractmethod
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
+    def contains(self, other: "BaseType[Any]") -> bool:
         pass
 
     @abstractmethod
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
+    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
         pass
 
     @abstractmethod
@@ -70,32 +60,23 @@ class MetaType(Generic[T], metaclass=ABCMeta):
     def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[T]:
         pass
 
+    @abstractmethod
+    def type_check_object(self, obj: object) -> bool:
+        pass
+
 
 class ResolutionError(TypeError):
-    def __init__(self, type_: MetaType[Any]):
+    def __init__(self, type_: BaseType[Any]):
         super().__init__(
             f"Container is not able to resolve type '{type_}'. "
             f"Make sure it is registered in the container."
         )
 
 
-class TerminalType(Generic[T], MetaType[T], metaclass=ABCMeta):
-    """The type that cannot be further decomposed.
-
-    Example: int, object, SomeClass, Type[SomeClass]
-    """
-
-    @abstractmethod
-    def type_check_object(self, obj: object) -> bool:
-        pass
-
-
 _TObject = TypeVar("_TObject", bound=object)
 
 
-class ClassType(Generic[_TObject], TerminalType[_TObject]):
-    """Classes"""
-
+class ClassType(Generic[_TObject], BaseType[_TObject]):
     __slots__ = "type"
 
     def __init__(self, type_: Type[_TObject]):
@@ -107,14 +88,11 @@ class ClassType(Generic[_TObject], TerminalType[_TObject]):
             return True
         return isinstance(obj, self.type)
 
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        if isinstance(other, ClassType):
-            return issubclass(other.type, self.type)
-        return False
+    def contains(self, other: "BaseType[Any]") -> bool:
+        return isinstance(other, ClassType) and issubclass(other.type, self.type)
 
-    def iterate_possible_terminal_types(self) -> Iterable["ClassType[Any]"]:
-        for base in self.type.__mro__[:-1]:
-            yield ClassType[Any](base)
+    def iterate_terminal_types(self) -> Iterable["ClassType[Any]"]:
+        return (self,)
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> _TObject:
         return resolver.resolve_single_instance(self)
@@ -134,21 +112,21 @@ class ClassType(Generic[_TObject], TerminalType[_TObject]):
         return isinstance(other, ClassType) and self.type == other.type
 
 
-class NoneTerminalType(TerminalType[None]):
-    def iterate_possible_terminal_types(self) -> Iterable["NoneTerminalType"]:
-        yield self
+class NoneTerminalType(BaseType[None]):
+    def iterate_terminal_types(self) -> Iterable["NoneTerminalType"]:
+        return (self,)
 
     def type_check_object(self, obj: object) -> bool:
         return obj is None
 
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
+    def contains(self, other: "BaseType[Any]") -> bool:
         return isinstance(other, NoneTerminalType)
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> None:
         return None
 
     def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[None]:
-        yield None
+        return (None,)
 
     def __hash__(self) -> int:
         return hash("NoneTerminalType")
@@ -157,20 +135,20 @@ class NoneTerminalType(TerminalType[None]):
         return isinstance(other, NoneTerminalType)
 
 
-class GenericTerminalType(TerminalType[Any]):
+class GenericTerminalType(BaseType[Any]):
     __slots__ = "type"
 
     def __init__(self, type_: Type[Any]):
         self.type = type_
 
-    def iterate_possible_terminal_types(self) -> Iterable["GenericTerminalType"]:
-        yield self
+    def iterate_terminal_types(self) -> Iterable["GenericTerminalType"]:
+        return (self,)
 
     def type_check_object(self, obj: object) -> bool:
         # Naive optimistic resolution
         return isinstance(obj, get_origin(self.type))
 
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
+    def contains(self, other: "BaseType[Any]") -> bool:
         return isinstance(other, GenericTerminalType) and self.type == other.type
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> object:
@@ -191,22 +169,21 @@ class GenericTerminalType(TerminalType[Any]):
         return isinstance(other, GenericTerminalType) and self.type == other.type
 
 
-class UnionType(Generic[T], MetaType[T]):
+class UnionType(Generic[T], BaseType[T]):
     __slots__ = "types"
 
-    def __init__(self, *types: MetaType[T]) -> None:
+    def __init__(self, *types: BaseType[T]) -> None:
         self.types = types
 
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        for t in self.types:
-            if t.can_handle(other):
-                return True
-        return False
+    def contains(self, other: "BaseType[Any]") -> bool:
+        return any(t.contains(other) for t in self.types)
 
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
+    def type_check_object(self, obj: object) -> bool:
+        raise RuntimeError("Should not be called directly")
+
+    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
         for t in self.types:
-            for possible in t.iterate_possible_terminal_types():
-                yield possible
+            yield from t.iterate_terminal_types()
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> T:
         for t in self.types:
@@ -228,17 +205,20 @@ class UnionType(Generic[T], MetaType[T]):
         return isinstance(other, UnionType) and other.types == self.types
 
 
-class ListType(Generic[T], MetaType[List[T]]):
+class ListType(Generic[T], BaseType[List[T]]):
     __slots__ = "type"
 
-    def __init__(self, type_: MetaType[T]) -> None:
+    def __init__(self, type_: BaseType[T]) -> None:
         self.type = type_
 
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        return self.type.can_handle(other)
+    def contains(self, other: "BaseType[Any]") -> bool:
+        return self.type.contains(other)
 
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
-        return self.type.iterate_possible_terminal_types()
+    def type_check_object(self, obj: object) -> bool:
+        return self.type.type_check_object(obj)
+
+    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+        return self.type.iterate_terminal_types()
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> List[T]:
         return list(self.type.iterate_resolved_instances(resolver))
@@ -255,17 +235,20 @@ class ListType(Generic[T], MetaType[List[T]]):
         return isinstance(other, ListType) and other.type == self.type
 
 
-class IterableType(Generic[T], MetaType[Iterable[T]]):
+class IterableType(Generic[T], BaseType[Iterable[T]]):
     __slots__ = "type"
 
-    def __init__(self, type_: MetaType[T]) -> None:
+    def __init__(self, type_: BaseType[T]) -> None:
         self.type = type_
 
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        return self.type.can_handle(other)
+    def contains(self, other: "BaseType[Any]") -> bool:
+        return self.type.contains(other)
 
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
-        return self.type.iterate_possible_terminal_types()
+    def type_check_object(self, obj: object) -> bool:
+        return self.type.type_check_object(obj)
+
+    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+        return self.type.iterate_terminal_types()
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[T]:
         return self.type.iterate_resolved_instances(resolver)
@@ -282,14 +265,17 @@ class IterableType(Generic[T], MetaType[Iterable[T]]):
         return isinstance(other, IterableType) and self.type == other.type
 
 
-class TupleType(TerminalType[Any], MetaType[Any]):
+class TupleType(BaseType[Any]):
     __slots__ = "args"
 
-    def __init__(self, *args: MetaType[Any]):
+    def __init__(self, *args: BaseType[Any]):
         self.args = args
 
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
-        return isinstance(other, TupleType) and self.args == other.args
+    def contains(self, other: "BaseType[Any]") -> bool:
+        return (
+            isinstance(other, TupleType)
+            and all(a1.contains(a2) for (a1, a2) in zip(self.args, other.args))
+        ) or any(arg.contains(other) for arg in self.args)
 
     def type_check_object(self, obj: object) -> bool:
         if isinstance(obj, tuple) and len(obj) == len(self.args):
@@ -299,48 +285,50 @@ class TupleType(TerminalType[Any], MetaType[Any]):
             return True
         return False
 
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
-        for arg in self.args:
-            yield from arg.iterate_possible_terminal_types()
+    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
         yield self
+        for arg in self.args:
+            yield from arg.iterate_terminal_types()
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[Any]:
         try:
-            # First, try resolve tuple as terminal.
-            # There might be an instance with exact tuple type registered.
             return resolver.resolve_single_instance(self)
         except ResolutionError:
-            # Auto-resolve tuple if not present.
-            # It is simply instance resolution of separate tuple arguments combined.
             return tuple(arg.resolve_single_instance(resolver) for arg in self.args)
 
     def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[Any]:
-        return resolver.iterate_instances(self)
+        yield from resolver.iterate_instances(self)
+
+        for combination in product(
+            *(arg.iterate_resolved_instances(resolver) for arg in self.args)
+        ):
+            yield combination
 
     def __str__(self) -> str:
         return f"Tuple[" + ",".join(str(arg) for arg in self.args) + "]"
 
     def __hash__(self) -> int:
-        return hash(self.args)
+        return hash(("TupleType", self.args))
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, TupleType) and self.args == other.args
 
 
-class AnyType(MetaType[Any]):
-    def can_handle(self, other: "TerminalType[Any]") -> bool:
+class AnyType(BaseType[Any]):
+    def type_check_object(self, obj: object) -> bool:
         return True
 
-    def iterate_possible_terminal_types(self) -> Iterable["TerminalType[Any]"]:
-        return ()  # Special case
+    def contains(self, other: "BaseType[Any]") -> bool:
+        return True
+
+    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+        return (self,)
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[Any]:
-        for instance in resolver.iterate_all_instances():
-            return instance
-        raise ResolutionError(self)
+        return resolver.resolve_single_instance(self)
 
     def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[Any]:
-        return resolver.iterate_all_instances()
+        return resolver.iterate_instances(self)
 
     def __str__(self) -> str:
         return f"Any"
@@ -352,8 +340,60 @@ class AnyType(MetaType[Any]):
         return isinstance(other, AnyType)
 
 
+class ProtocolType(BaseType[Any]):
+    __slots__ = "_protocol"
+
+    def __init__(self, protocol: type):
+        if not getattr(protocol, "_is_runtime_protocol", False):
+            raise TypeError(
+                f"Only runtime protocols are supported. "
+                f"Mark {protocol} with @runtime_checkable decorator."
+            )
+        self._protocol = protocol
+
+    def contains(self, other: "BaseType[Any]") -> bool:
+        if isinstance(other, ProtocolType):
+            return issubclass(other._protocol, self._protocol)
+        if isinstance(other, ClassType):
+            return issubclass(other.type, self._protocol)
+        return False
+
+    def type_check_object(self, obj: object) -> bool:
+        return isinstance(obj, self._protocol)
+
+    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+        return (self,)
+
+    def resolve_single_instance(self, resolver: IInstanceResolver) -> Any:
+        return resolver.resolve_single_instance(self)
+
+    def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[Any]:
+        return resolver.iterate_instances(self)
+
+    def __str__(self) -> str:
+        return str(self._protocol)
+
+    def __hash__(self) -> int:
+        return hash(("ProtocolType", self._protocol))
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, ProtocolType) and self._protocol == other._protocol
+
+
+def intersects(t1: BaseType[Any], t2: BaseType[Any]) -> bool:
+    for terminal1 in t1.iterate_terminal_types():
+        for terminal2 in t2.iterate_terminal_types():
+            if terminal1.contains(terminal2) or terminal2.contains(terminal1):
+                return True
+    return False
+
+
+_NoneType = type(None)
+_ProtocolType = type(Protocol)
+
+
 @lru_cache(1024)
-def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
+def as_type(type_: Type[T]) -> BaseType[T]:
     """Converts python types to custom type-system
 
     For collection base classes see:
@@ -364,8 +404,11 @@ def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
     """
     type_ = unwrap_decorators(type_)
 
-    if type_ is type(None):
+    if type_ is _NoneType:
         return NoneTerminalType()  # type: ignore
+
+    if type(type_) is _ProtocolType:  # type: ignore
+        return ProtocolType(type_)
 
     if isinstance(type_, type):
         return ClassType[T](type_)
@@ -381,17 +424,17 @@ def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
         if origin == Union:
             if len(args) == 1:
                 # Only 1 arg, no need for union
-                return python_type_to_meta(args[0])
-            return UnionType(*(python_type_to_meta(t) for t in args))
+                return as_type(args[0])
+            return UnionType(*(as_type(t) for t in args))
 
         if origin is tuple:
-            return TupleType(*(python_type_to_meta(t) for t in args))
+            return TupleType(*(as_type(t) for t in args))
 
         if issubclass(origin, collections_abc.Sequence):
-            return ListType(python_type_to_meta(args[0]))
+            return ListType(as_type(args[0]))
 
         if issubclass(origin, collections_abc.Iterable):
-            return IterableType(python_type_to_meta(args[0]))
+            return IterableType(as_type(args[0]))
 
         if origin is type:
             return GenericTerminalType(type_)
@@ -399,7 +442,7 @@ def python_type_to_meta(type_: Type[T]) -> MetaType[T]:
     raise TypeError(f"Unsupported type {type_}")
 
 
-def type_of(obj: object) -> MetaType[Any]:
+def type_of(obj: object) -> BaseType[Any]:
     t = type(obj)
 
     if t is tuple:
@@ -421,4 +464,4 @@ def type_of(obj: object) -> MetaType[Any]:
             return ListType(one_type)
         return ListType(UnionType(*types))
 
-    return python_type_to_meta(type(obj))
+    return as_type(type(obj))
