@@ -463,15 +463,15 @@ def as_type(type_: Type[T]) -> BaseType[T]:
     if type_ is _NoneType:
         return NONE_TYPE  # type: ignore
 
+    if type_ is Any:
+        return ANY_TYPE
+
     if PROTOCOL_SUPPORTED:
         if type(type_) is _ProtocolType:  # type: ignore
             return ProtocolType(type_)
 
     if isinstance(type_, type):
         return ClassType[T](type_)
-
-    if type_ is Any:
-        return ANY_TYPE
 
     # Generics
     origin = get_origin(type_)
