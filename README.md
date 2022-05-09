@@ -16,7 +16,7 @@ pip install typedi
 Dependency Injection (DI) - is a design pattern where an object automatically receives other objects that it depends on.
 It is an approach to implement Inversion of Control - way to separate concerns and reduce coupling.
 
-To learn more I suggest reading [Inversion of Control Containers and the Dependency Injection pattern](Inversion of Control Containers and the Dependency Injection pattern) by Martin Fowler.
+To learn more I suggest reading [Inversion of Control Containers and the Dependency Injection pattern](https://martinfowler.com/articles/injection.html) by Martin Fowler.
 
 When DI in python is useful (my subjective opinion):
 * Large modularized applications
@@ -32,9 +32,99 @@ When it is harmful or might bring unnecessary complexity:
 
 `typedi` - implements "constructor based" dependency injection by heavily utilizing python's type annotations.
 This means that you specify object dependencies just by type annotations in `__init__` methods or by annotating dataclasses.
-From looking at object initializers `typedi` figures out dependencies and tries its best to provide them.
 
-`typedi` aims 0 user code invasion - your code is yours:  
+From looking at object initializers `typedi` figures out dependencies and tries its best to provide them:
+```python
+class AbstractService:
+    pass
+
+
+class ConcreteService(AbstractService):
+    pass
+
+
+class App:
+    # App depends on AbstractService.
+    # Such that we can provide multiple implementations, i.e. for testing purposes. 
+    def __init__(self, service: AbstractService):  
+        self.service = service
+
+
+from typedi import Container
+container = Container()  # creating a DI container
+
+# Registering instance of a ConcreteService into container.
+container.register_instance(ConcreteService())
+
+# Registering App class.
+# Container will internally look at the signature of __init__  
+container.register_class(App)  
+
+# First, container tries to specify dependencies of App
+# so Service() is created. Then, App is constructed will all args
+application = container.resolve(App)
+```
+
+This example is unrealistically simple. But highlights the fundamental idea of specifying and resolving dependencies from type signatures.
+
+Here is more complex example highlighting some more features:
+```python
+from typing import Protocol, List, runtime_checkable
+from dataclasses import dataclass
+
+
+# Note: we are using protocol
+# Abstract classes (abc) or basic inheritance would also work
+@runtime_checkable
+class MathOperation(Protocol):
+    def apply(self, a: int, b: int) -> int:
+        ...
+    
+
+class SumOperation:   # Note: we are not even subclassing
+    def apply(self, a: int, b: int) -> int:
+        return a + b
+    
+
+class SubtractOperation:   # Note: we are not even subclassing
+    def apply(self, a: int, b: int) -> int:
+        return a - b
+    
+
+@dataclass  # dataclasses (or even attrs) works
+class App:
+    # Require instances that support MathOperation Protocol     
+    operations: List[MathOperation]
+    
+    # Note: typedi also supports dependencies specified using complex types:
+    #   List, Iterable, Union, Optional, Tuple, Type and even Any
+    
+    def do_something(self, a: int, b: int):
+        for op in self.operations:
+            print(f"{op}: {op.apply(a, b)}")
+            
+ 
+# Importing here just to highlight that it is not needed anywhere above
+from typedi import Container
+
+container = Container()
+
+# Register operations as singletons. 
+# There will be at most 1 instance in the container 
+# Instances will be created only when requested.
+container.register_singleton_class(SumOperation)
+container.register_singleton_class(SubtractOperation)
+
+# Registering App so that container will understand its dependencies
+container.register_class(App)
+
+# Resolution happens here.
+app = container.resolve(App)
+
+app.do_something(3, 4)
+```
+
+`typedi` aims 0 user code invasion - your code is yours:
 * no magic meta subclassing
 * no decorators
 * no magic `Depends` default arguments
@@ -139,7 +229,7 @@ Not supported return annotations:
 * `Final`
 * `Literal`
 * `Annotated`
-* `Protocol`
+
 * generic annotations with `TypeVar`
 
 ### Supported resolution type queries
