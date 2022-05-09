@@ -55,7 +55,9 @@ jobs:
       #    name: coverage
       #    path: .coverage.*
 
+
       - name: Coveralls Parallel
+        # Documentation : https://github.com/marketplace/actions/coveralls-github-action
         uses: coverallsapp/github-action@master
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
