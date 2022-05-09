@@ -1,4 +1,0 @@
-[report]
-exclude_lines =
-    @abstractmethod
-    if sys.version_info

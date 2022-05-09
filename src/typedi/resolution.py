@@ -1,4 +1,5 @@
-from typing import Iterable, Any, List, Union, Generic, TypeVar, Type, Protocol
+from typing import Iterable, Any, List, Union, Generic, TypeVar, Type
+import sys
 from abc import ABCMeta, abstractmethod
 from collections import abc as collections_abc
 from functools import lru_cache
@@ -23,13 +24,15 @@ __all__ = [
     "IterableType",
     "TupleType",
     "AnyType",
-    "ProtocolType",
     "intersects",
     "as_type",
     "type_of",
     "NONE_TYPE",
     "ANY_TYPE",
 ]
+
+if sys.version_info >= (3, 8):
+    __all__.append("ProtocolType")
 
 
 T = TypeVar("T")
@@ -113,6 +116,9 @@ class ClassType(Generic[_TObject], BaseType[_TObject]):
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ClassType) and self.type == other.type
 
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.type!r})"
+
 
 class NoneType(BaseType[None]):
     def iterate_terminal_types(self) -> Iterable["NoneType"]:
@@ -135,6 +141,9 @@ class NoneType(BaseType[None]):
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, NoneType)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}()"
 
 
 class GenericTerminalType(BaseType[Any]):
@@ -170,12 +179,18 @@ class GenericTerminalType(BaseType[Any]):
     def __eq__(self, other: object) -> bool:
         return isinstance(other, GenericTerminalType) and self.type == other.type
 
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.type!r})"
+
 
 class UnionType(Generic[T], BaseType[T]):
-    __slots__ = "types"
+    __slots__ = "types", "types_set"
 
     def __init__(self, *types: BaseType[T]) -> None:
         self.types = types
+
+        # duplicated storage for hashing and comparison
+        self.types_set = set(types)
 
     def contains(self, other: "BaseType[Any]") -> bool:
         return any(t.contains(other) for t in self.types)
@@ -200,11 +215,18 @@ class UnionType(Generic[T], BaseType[T]):
         for t in self.types:
             yield from t.iterate_resolved_instances(resolver)
 
+    def __hash__(self):
+        return hash(("UnionType", self.types_set))
+
     def __str__(self) -> str:
         return "Union[" + ", ".join(str(t) for t in self.types) + "]"
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, UnionType) and other.types == self.types
+        return isinstance(other, UnionType) and self.types_set == other.types_set
+
+    def __repr__(self):
+        args = ", ".join(repr(arg) for arg in self.types)
+        return f"{self.__class__.__name__}({args})"
 
 
 class ListType(Generic[T], BaseType[List[T]]):
@@ -230,11 +252,17 @@ class ListType(Generic[T], BaseType[List[T]]):
     ) -> Iterable[List[T]]:
         yield list(self.type.iterate_resolved_instances(resolver))
 
+    def __hash__(self):
+        return hash(("ListType", self.type))
+
     def __str__(self) -> str:
         return f"List[{self.type}]"
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ListType) and other.type == self.type
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.type!r})"
 
 
 class IterableType(Generic[T], BaseType[Iterable[T]]):
@@ -265,6 +293,9 @@ class IterableType(Generic[T], BaseType[Iterable[T]]):
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, IterableType) and self.type == other.type
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.type!r})"
 
 
 class TupleType(BaseType[Any]):
@@ -315,6 +346,10 @@ class TupleType(BaseType[Any]):
     def __eq__(self, other: object) -> bool:
         return isinstance(other, TupleType) and self.args == other.args
 
+    def __repr__(self):
+        args = ", ".join(repr(arg) for arg in self.args)
+        return f"{self.__class__.__name__}({args})"
+
 
 class AnyType(BaseType[Any]):
     def type_check_object(self, obj: object) -> bool:
@@ -341,45 +376,62 @@ class AnyType(BaseType[Any]):
     def __eq__(self, other: object) -> bool:
         return isinstance(other, AnyType)
 
+    def __repr__(self):
+        return f"{self.__class__.__name__}"
 
-class ProtocolType(BaseType[Any]):
-    __slots__ = "_protocol"
 
-    def __init__(self, protocol: type):
-        if not getattr(protocol, "_is_runtime_protocol", False):
-            raise TypeError(
-                f"Only runtime protocols are supported. "
-                f"Mark {protocol} with @runtime_checkable decorator."
-            )
-        self._protocol = protocol
+if sys.version_info >= (3, 8):
+    from typing import Protocol
 
-    def contains(self, other: "BaseType[Any]") -> bool:
-        if isinstance(other, ProtocolType):
-            return issubclass(other._protocol, self._protocol)
-        if isinstance(other, ClassType):
-            return issubclass(other.type, self._protocol)
-        return False
+    _ProtocolType = type(Protocol)
+    PROTOCOL_SUPPORTED = True
 
-    def type_check_object(self, obj: object) -> bool:
-        return isinstance(obj, self._protocol)
+    class ProtocolType(BaseType[Any]):
+        __slots__ = "_protocol"
 
-    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
-        return (self,)
+        def __init__(self, protocol: type):
+            if not getattr(protocol, "_is_runtime_protocol", False):
+                raise TypeError(
+                    f"Only runtime protocols are supported. "
+                    f"Mark {protocol} with @runtime_checkable decorator."
+                )
+            self._protocol = protocol
 
-    def resolve_single_instance(self, resolver: IInstanceResolver) -> Any:
-        return resolver.resolve_single_instance(self)
+        def contains(self, other: "BaseType[Any]") -> bool:
+            if isinstance(other, ProtocolType):
+                return issubclass(other._protocol, self._protocol)
+            if isinstance(other, ClassType):
+                return issubclass(other.type, self._protocol)
+            return False
 
-    def iterate_resolved_instances(self, resolver: IInstanceResolver) -> Iterable[Any]:
-        return resolver.iterate_instances(self)
+        def type_check_object(self, obj: object) -> bool:
+            return isinstance(obj, self._protocol)
 
-    def __str__(self) -> str:
-        return str(self._protocol)
+        def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+            return (self,)
 
-    def __hash__(self) -> int:
-        return hash(("ProtocolType", self._protocol))
+        def resolve_single_instance(self, resolver: IInstanceResolver) -> Any:
+            return resolver.resolve_single_instance(self)
 
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, ProtocolType) and self._protocol == other._protocol
+        def iterate_resolved_instances(
+            self, resolver: IInstanceResolver
+        ) -> Iterable[Any]:
+            return resolver.iterate_instances(self)
+
+        def __str__(self) -> str:
+            return str(self._protocol)
+
+        def __hash__(self) -> int:
+            return hash(("ProtocolType", self._protocol))
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, ProtocolType) and self._protocol == other._protocol
+
+        def __repr__(self):
+            return f"{self.__class__.__name__}({self._protocol!r})"
+
+else:
+    PROTOCOL_SUPPORTED = False
 
 
 def intersects(t1: BaseType[Any], t2: BaseType[Any]) -> bool:
@@ -391,7 +443,6 @@ def intersects(t1: BaseType[Any], t2: BaseType[Any]) -> bool:
 
 
 _NoneType = type(None)
-_ProtocolType = type(Protocol)
 
 ANY_TYPE = AnyType()
 NONE_TYPE = NoneType()
@@ -412,8 +463,9 @@ def as_type(type_: Type[T]) -> BaseType[T]:
     if type_ is _NoneType:
         return NONE_TYPE  # type: ignore
 
-    if type(type_) is _ProtocolType:  # type: ignore
-        return ProtocolType(type_)
+    if PROTOCOL_SUPPORTED:
+        if type(type_) is _ProtocolType:  # type: ignore
+            return ProtocolType(type_)
 
     if isinstance(type_, type):
         return ClassType[T](type_)
