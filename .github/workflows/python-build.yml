@@ -61,6 +61,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           flag-name: python-${{ matrix.python-version }}
           parallel: true
+          path-to-lcov: coverage.lcov
 
   coveralls:
     name: Finish Coveralls
