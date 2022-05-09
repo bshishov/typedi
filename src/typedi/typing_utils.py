@@ -14,7 +14,6 @@ from typing import (
 from functools import partial, partialmethod
 
 __all__ = [
-    "ForwardRef",
     "eval_type",
     "unwrap_decorators",
     "get_return_type",
@@ -25,20 +24,6 @@ __all__ = [
 
 
 T = TypeVar("T")
-
-
-# Dynamic forward ref imports / declarations
-# 3.6  : https://github.com/python/cpython/blob/3.6/Lib/typing.py#L216
-# 3.7  : https://github.com/python/cpython/blob/3.7/Lib/typing.py#L438
-# 3.8  : https://github.com/python/cpython/blob/3.8/Lib/typing.py#L489
-# 3.9  : https://github.com/python/cpython/blob/3.9/Lib/typing.py#L516
-# 3.10 : https://github.com/python/cpython/blob/3.10/Lib/typing.py#L653
-if sys.version_info >= (3, 7):
-    ForwardRef = getattr(typing, "ForwardRef")
-elif sys.version_info >= (3, 5):
-    ForwardRef = getattr(typing, "_ForwardRef")
-else:
-    raise ImportError("typing.ForwardRef is not supported")
 
 
 # Evaluates meta types recursively including ForwardRef

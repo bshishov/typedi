@@ -1,6 +1,7 @@
-import pytest
 import sys
 import typing as tp
+
+import pytest
 
 from typedi.resolution import *
 
@@ -183,6 +184,7 @@ T = tp.TypeVar("T")
         tp.Tuple[T, A],
         tp.Tuple[A, T],
         tp.Tuple[T, ...],
+        tp.NoReturn,
     ],
 )
 def test_python_type_conversions_unsupported_types_raises(py_type: tp.Any):

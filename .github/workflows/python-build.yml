@@ -49,13 +49,6 @@ jobs:
       - name: Export coverage to LCOV
         run: python -m coverage lcov
 
-      #- name: Store partial coverage reports
-      #  uses: actions/upload-artifact@v2
-      #  with:
-      #    name: coverage
-      #    path: .coverage.*
-
-
       - name: Coveralls Parallel
         # Documentation : https://github.com/marketplace/actions/coveralls-github-action
         uses: coverallsapp/github-action@master

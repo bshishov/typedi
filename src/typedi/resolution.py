@@ -368,7 +368,7 @@ class AnyType(BaseType[Any]):
         return resolver.iterate_instances(self)
 
     def __str__(self) -> str:
-        return f"Any"
+        return "Any"
 
     def __hash__(self) -> int:
         return hash("AnyType")
@@ -478,10 +478,7 @@ def as_type(type_: Type[T]) -> BaseType[T]:
     args = get_args(type_)
 
     if origin is not None and args:
-        if origin == Union:
-            if len(args) == 1:
-                # Only 1 arg, no need for union
-                return as_type(args[0])
+        if origin is Union:
             return UnionType(*(as_type(t) for t in args))
 
         if origin is tuple:

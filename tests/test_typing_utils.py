@@ -1,14 +1,13 @@
 import collections
 import contextlib
 import typing
-import pytest
 import sys
 from collections import abc as abc_collections
 
+import pytest
 
 from typedi.typing_utils import (
     eval_type,
-    ForwardRef,
     get_origin,
 )
 
@@ -36,7 +35,7 @@ def test_eval_type_resolves_forward_ref():
     class MyClass:
         pass
 
-    assert eval_type(ForwardRef("MyClass"), globals(), locals()) == MyClass
+    assert eval_type(typing.ForwardRef("MyClass"), globals(), locals()) == MyClass
 
 
 def test_nested_eval_type_resolves_forward_ref():
@@ -44,7 +43,7 @@ def test_nested_eval_type_resolves_forward_ref():
         pass
 
     assert (
-        eval_type(typing.Optional[ForwardRef("MyClass")], globals(), locals())
+        eval_type(typing.Optional[typing.ForwardRef("MyClass")], globals(), locals())
         == typing.Optional[MyClass]
     )
 
@@ -63,7 +62,7 @@ TYPE_ORIGINS = [
     (bytes, None),
     (type, None),
     (typing.Any, None),
-    (ForwardRef("A"), None),
+    (typing.ForwardRef("A"), None),
     # (typing.Annotated[int, 42], int), # py3.9+
     (typing.Union[int, None], typing.Union),
     (typing.Generic[T], typing.Generic),

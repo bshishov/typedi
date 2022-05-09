@@ -1,6 +1,7 @@
 from typing import Optional, Union, List, Iterable, Type, Tuple, Any
-import pytest
 from functools import partial, wraps, partialmethod
+
+import pytest
 
 from typedi import Container, ResolutionError
 

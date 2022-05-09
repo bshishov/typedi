@@ -9,6 +9,7 @@ from typing import (
     Callable,
     Tuple,
     Type,
+    ForwardRef,
 )
 from abc import ABCMeta, abstractmethod
 import inspect
@@ -19,7 +20,6 @@ from typedi.typing_utils import (
     get_return_type,
     type_forward_ref_scope,
     eval_type,
-    ForwardRef,
 )
 from typedi.resolution import *
 
