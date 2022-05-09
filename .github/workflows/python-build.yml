@@ -16,11 +16,11 @@ jobs:
       max-parallel: 5
       matrix:
         python-version:
-          #- "3.7"  # temporarily omitted for CI performance
+          - "3.7"
           - "3.8"
           - "3.9"
-          #- "3.10"
-          #- "3.11-dev"
+          - "3.10"
+          - "3.11-dev"
 
     steps:
       - name: Checkout code

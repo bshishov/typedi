@@ -95,7 +95,6 @@ class ObjectProxyMeta(type):
 
 
 class ObjectProxy(metaclass=ObjectProxyMeta):
-    __slots__ = "__wrapped__"
     __wrapped__: Any
 
     def __init__(self, wrapped: Any):
@@ -392,9 +391,6 @@ class ObjectProxy(metaclass=ObjectProxyMeta):
 
     def __int__(self):
         return int(self.__wrapped__)
-
-    def __long__(self):
-        return long(self.__wrapped__)
 
     def __float__(self):
         return float(self.__wrapped__)
