@@ -210,7 +210,10 @@ class UnionType(Generic[T], BaseType[T]):
         self.types_set = set(types)
 
     def contains(self, other: "BaseType[Any]") -> bool:
-        return any(t.resolves(other) for t in self.types)
+        if isinstance(other, UnionType):
+            # TODO: Implement
+            raise NotImplementedError("Union vs Union subtype check is not implemented yet")
+        return any(t.contains(other) for t in self.types)
 
     def resolves(self, other: "BaseType[Any]") -> bool:
         return any(t.resolves(other) for t in self.types)

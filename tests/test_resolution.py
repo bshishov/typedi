@@ -26,6 +26,7 @@ TYPE_CONVERSION_CASES = [
     (type(None), NONE_TYPE),
     (tp.Any, ANY_TYPE),
     (tp.Type[A], TypeOfType(ClassType(A))),
+    (tp.Type[tp.List[A]], TypeOfType(ListType(ClassType(A)))),
     (tp.List[int], ListType(ClassType(int))),
     (tp.List[A], ListType(ClassType(A))),
     (tp.Iterable[int], IterableType(ClassType(int))),
@@ -42,7 +43,19 @@ TYPE_CONVERSION_CASES = [
 ]
 
 
-TYPE_CONTAINS_CASES = [
+TYPE_CONTAINS_SELF = [
+    ANY_TYPE,
+    NONE_TYPE,
+    ClassType(A),
+    # UnionType(ClassType(A), NONE_TYPE), # Not sure how this should work atm
+    ListType(ClassType(A)),
+    IterableType(ClassType(A)),
+    TypeOfType(ClassType(A)),
+    TupleType(ClassType(A), ClassType(B)),
+]
+
+
+TYPE_RESOLVES_CASES = [
     (ANY_TYPE, NONE_TYPE),
     (ANY_TYPE, ANY_TYPE),
     (NONE_TYPE, NONE_TYPE),
@@ -70,7 +83,7 @@ TYPE_CONTAINS_CASES = [
     ),
 ]
 
-TYPE_NOT_CONTAINS_CASES = [
+TYPE_NOT_RESOLVES_CASES = [
     (NONE_TYPE, ANY_TYPE),
     (ClassType(A), ClassType(B)),
     (ClassType(A), ANY_TYPE),
@@ -164,7 +177,7 @@ if sys.version_info >= (3, 8):
         ]
     )
 
-    TYPE_CONTAINS_CASES.extend(
+    TYPE_RESOLVES_CASES.extend(
         [
             (ProtocolType(AProtocol), ClassType(A)),
             (ProtocolType(AProtocol), ClassType(ChildOfA)),
@@ -175,7 +188,7 @@ if sys.version_info >= (3, 8):
         ]
     )
 
-    TYPE_NOT_CONTAINS_CASES.extend(
+    TYPE_NOT_RESOLVES_CASES.extend(
         [
             (ProtocolType(AProtocol), ClassType(B)),
         ]
@@ -245,13 +258,18 @@ def test_type_of(obj, expected_type):
     assert type_of(obj) == expected_type
 
 
-@pytest.mark.parametrize("a, b", TYPE_CONTAINS_CASES)
-def test_contains(a: BaseType[tp.Any], b: BaseType[tp.Any]):
+@pytest.mark.parametrize("a", TYPE_CONTAINS_SELF)
+def test_contains_self(a: BaseType[tp.Any]):
+    assert a.contains(a)
+
+
+@pytest.mark.parametrize("a, b", TYPE_RESOLVES_CASES)
+def test_resolves(a: BaseType[tp.Any], b: BaseType[tp.Any]):
     assert a.resolves(b)
 
 
-@pytest.mark.parametrize("a, b", TYPE_NOT_CONTAINS_CASES)
-def test_not_contains(a: BaseType[tp.Any], b: BaseType[tp.Any]):
+@pytest.mark.parametrize("a, b", TYPE_NOT_RESOLVES_CASES)
+def test_not_resolves(a: BaseType[tp.Any], b: BaseType[tp.Any]):
     assert not a.resolves(b)
 
 
