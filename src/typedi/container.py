@@ -101,7 +101,7 @@ class InstanceResolver(IInstanceResolver):
 
 
 def filter_instances_of_type(obj: object, type_: BaseType[T]) -> Iterable[T]:
-    if type_.type_check_object(obj):
+    if type_.accepts_resolved_object(obj):
         yield obj  # type: ignore
     elif hasattr(obj, "__iter__"):
         for item in obj:  # type: ignore

@@ -25,7 +25,7 @@ TYPE_CONVERSION_CASES = [
     (A, ClassType(A)),
     (type(None), NONE_TYPE),
     (tp.Any, ANY_TYPE),
-    (tp.Type[A], GenericTerminalType(tp.Type[A])),
+    (tp.Type[A], TypeOfType(ClassType(A))),
     (tp.List[int], ListType(ClassType(int))),
     (tp.List[A], ListType(ClassType(A))),
     (tp.Iterable[int], IterableType(ClassType(int))),
@@ -47,6 +47,9 @@ TYPE_CONTAINS_CASES = [
     (ANY_TYPE, ANY_TYPE),
     (NONE_TYPE, NONE_TYPE),
     (ANY_TYPE, ClassType(A)),
+    (TypeOfType(ClassType(A)), TypeOfType(ClassType(A))),
+    (TypeOfType(ClassType(A)), TypeOfType(ClassType(ChildOfA))),
+    (TypeOfType(UnionType(ClassType(A), ClassType(B))), TypeOfType(ClassType(ChildOfA))),
     (ClassType(A), ClassType(ChildOfA)),
     (ListType(ClassType(A)), ClassType(A)),
     (ListType(ClassType(A)), ClassType(ChildOfA)),
@@ -85,11 +88,15 @@ INTERSECT_SELF_CASES = [
     ANY_TYPE,
     ClassType(A),
     ClassType(ChildOfA),
+    TypeOfType(ClassType(A)),
 ]
 
 
 INTERSECTS_CASES = [
     (ClassType(A), ClassType(ChildOfA)),
+    (TypeOfType(ClassType(A)), TypeOfType(ClassType(A))),
+    (TypeOfType(ClassType(A)), TypeOfType(ClassType(ChildOfA))),
+    (TypeOfType(UnionType(ClassType(A), ClassType(B))), TypeOfType(ClassType(ChildOfA))),
     (UnionType(ClassType(A), NONE_TYPE), NONE_TYPE),
     (UnionType(ClassType(A), NONE_TYPE), ClassType(A)),
     (UnionType(ClassType(A), NONE_TYPE), ClassType(ChildOfA)),
@@ -118,6 +125,26 @@ INTERSECTS_CASES = [
     ),
 ]
 
+TYPE_ACCEPTS_RESOLVED_OBJECT_TEST_CASES = [
+    (ANY_TYPE, A()),
+    (ANY_TYPE, B()),
+    (ANY_TYPE, None),
+    (NONE_TYPE, None),
+    (ClassType(int), 42),
+    (ClassType(A), A()),
+    (ClassType(A), ChildOfA()),
+    (UnionType(ClassType(A), ClassType(B)), A()),
+    (UnionType(ClassType(A), ClassType(B)), ChildOfA()),
+    (UnionType(ClassType(A), ClassType(B)), B()),
+    (UnionType(ClassType(A), NONE_TYPE), ChildOfA()),
+    (ListType(ClassType(A)), A()),
+    (IterableType(ClassType(A)), A()),
+    (TypeOfType(ClassType(A)), A),
+    (TypeOfType(ListType(ClassType(A))), tp.List[A]),
+    (TypeOfType(ListType(ClassType(A))), tp.List[ChildOfA]),
+]
+
+
 if sys.version_info >= (3, 8):
 
     @tp.runtime_checkable
@@ -137,6 +164,8 @@ if sys.version_info >= (3, 8):
             (ProtocolType(AProtocol), ClassType(ChildOfA)),
             (ProtocolType(AProtocol), ProtocolType(AProtocol)),
             (ListType(ProtocolType(AProtocol)), ClassType(ChildOfA)),
+            (TypeOfType(ProtocolType(AProtocol)), TypeOfType(ClassType(A))),
+            (TypeOfType(ProtocolType(AProtocol)), TypeOfType(ClassType(ChildOfA))),
         ]
     )
 
@@ -229,3 +258,8 @@ def test_terminals_intersects_self(t: BaseType[tp.Any]):
 def test_intersects(a: BaseType[tp.Any], b: BaseType[tp.Any]):
     assert intersects(a, b)
     assert intersects(b, a)
+
+
+@pytest.mark.parametrize("t, obj", TYPE_ACCEPTS_RESOLVED_OBJECT_TEST_CASES)
+def test_type_accepts_object(t: BaseType[tp.Any], obj):
+    assert t.accepts_resolved_object(obj)
