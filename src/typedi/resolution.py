@@ -54,7 +54,11 @@ class BaseType(Generic[T], metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+    def resolves(self, other: "BaseType[Any]") -> bool:
+        pass
+
+    @abstractmethod
+    def iterate_terminal_resolvable_types(self) -> Iterable["BaseType[Any]"]:
         pass
 
     @abstractmethod
@@ -96,7 +100,10 @@ class ClassType(Generic[_TObject], BaseType[_TObject]):
     def contains(self, other: "BaseType[Any]") -> bool:
         return isinstance(other, ClassType) and issubclass(other.type, self.type)
 
-    def iterate_terminal_types(self) -> Iterable["ClassType[Any]"]:
+    def resolves(self, other: "BaseType[Any]") -> bool:
+        return isinstance(other, ClassType) and issubclass(other.type, self.type)
+
+    def iterate_terminal_resolvable_types(self) -> Iterable["ClassType[Any]"]:
         return (self,)
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> _TObject:
@@ -121,13 +128,16 @@ class ClassType(Generic[_TObject], BaseType[_TObject]):
 
 
 class NoneType(BaseType[None]):
-    def iterate_terminal_types(self) -> Iterable["NoneType"]:
+    def iterate_terminal_resolvable_types(self) -> Iterable["NoneType"]:
         return (self,)
 
     def accepts_resolved_object(self, obj: object) -> bool:
         return obj is None
 
     def contains(self, other: "BaseType[Any]") -> bool:
+        return isinstance(other, NoneType)
+
+    def resolves(self, other: "BaseType[Any]") -> bool:
         return isinstance(other, NoneType)
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> None:
@@ -152,7 +162,7 @@ class TypeOfType(BaseType[Any]):
     def __init__(self, type_: BaseType[Any]):
         self.type = type_
 
-    def iterate_terminal_types(self) -> Iterable["TypeOfType"]:
+    def iterate_terminal_resolvable_types(self) -> Iterable["TypeOfType"]:
         return (self,)
 
     def accepts_resolved_object(self, obj: object) -> bool:
@@ -164,6 +174,9 @@ class TypeOfType(BaseType[Any]):
         return self.type.contains(type_)
 
     def contains(self, other: "BaseType[Any]") -> bool:
+        return isinstance(other, TypeOfType) and self.type.contains(other.type)
+
+    def resolves(self, other: "BaseType[Any]") -> bool:
         return isinstance(other, TypeOfType) and self.type.contains(other.type)
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> object:
@@ -197,14 +210,17 @@ class UnionType(Generic[T], BaseType[T]):
         self.types_set = set(types)
 
     def contains(self, other: "BaseType[Any]") -> bool:
-        return any(t.contains(other) for t in self.types)
+        return any(t.resolves(other) for t in self.types)
+
+    def resolves(self, other: "BaseType[Any]") -> bool:
+        return any(t.resolves(other) for t in self.types)
 
     def accepts_resolved_object(self, obj: object) -> bool:
         return any(t.accepts_resolved_object(obj) for t in self.types)
 
-    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+    def iterate_terminal_resolvable_types(self) -> Iterable["BaseType[Any]"]:
         for t in self.types:
-            yield from t.iterate_terminal_types()
+            yield from t.iterate_terminal_resolvable_types()
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> T:
         for t in self.types:
@@ -240,13 +256,16 @@ class ListType(Generic[T], BaseType[List[T]]):
         self.type = type_
 
     def contains(self, other: "BaseType[Any]") -> bool:
-        return self.type.contains(other)
+        return isinstance(other, ListType) and self.type.contains(other.type)
+
+    def resolves(self, other: "BaseType[Any]") -> bool:
+        return self.type.resolves(other)
 
     def accepts_resolved_object(self, obj: object) -> bool:
         return self.type.accepts_resolved_object(obj)
 
-    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
-        return self.type.iterate_terminal_types()
+    def iterate_terminal_resolvable_types(self) -> Iterable["BaseType[Any]"]:
+        return self.type.iterate_terminal_resolvable_types()
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> List[T]:
         return list(self.type.iterate_resolved_instances(resolver))
@@ -276,13 +295,18 @@ class IterableType(Generic[T], BaseType[Iterable[T]]):
         self.type = type_
 
     def contains(self, other: "BaseType[Any]") -> bool:
-        return self.type.contains(other)
+        return isinstance(other, (IterableType, ListType)) and self.type.contains(
+            other.type
+        )
+
+    def resolves(self, other: "BaseType[Any]") -> bool:
+        return self.type.resolves(other)
 
     def accepts_resolved_object(self, obj: object) -> bool:
         return self.type.accepts_resolved_object(obj)
 
-    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
-        return self.type.iterate_terminal_types()
+    def iterate_terminal_resolvable_types(self) -> Iterable["BaseType[Any]"]:
+        return self.type.iterate_terminal_resolvable_types()
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[T]:
         return self.type.iterate_resolved_instances(resolver)
@@ -309,10 +333,15 @@ class TupleType(BaseType[Any]):
         self.args = args
 
     def contains(self, other: "BaseType[Any]") -> bool:
+        return isinstance(other, TupleType) and all(
+            a1.contains(a2) for (a1, a2) in zip(self.args, other.args)
+        )
+
+    def resolves(self, other: "BaseType[Any]") -> bool:
         return (
             isinstance(other, TupleType)
-            and all(a1.contains(a2) for (a1, a2) in zip(self.args, other.args))
-        ) or any(arg.contains(other) for arg in self.args)
+            and all(a1.resolves(a2) for (a1, a2) in zip(self.args, other.args))
+        ) or any(arg.resolves(other) for arg in self.args)
 
     def accepts_resolved_object(self, obj: object) -> bool:
         if isinstance(obj, tuple) and len(obj) == len(self.args):
@@ -322,10 +351,10 @@ class TupleType(BaseType[Any]):
             return True
         return False
 
-    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+    def iterate_terminal_resolvable_types(self) -> Iterable["BaseType[Any]"]:
         yield self
         for arg in self.args:
-            yield from arg.iterate_terminal_types()
+            yield from arg.iterate_terminal_resolvable_types()
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[Any]:
         try:
@@ -362,7 +391,10 @@ class AnyType(BaseType[Any]):
     def contains(self, other: "BaseType[Any]") -> bool:
         return True
 
-    def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+    def resolves(self, other: "BaseType[Any]") -> bool:
+        return True
+
+    def iterate_terminal_resolvable_types(self) -> Iterable["BaseType[Any]"]:
         return (self,)
 
     def resolve_single_instance(self, resolver: IInstanceResolver) -> Iterable[Any]:
@@ -408,10 +440,17 @@ if sys.version_info >= (3, 8):
                 return issubclass(other.type, self._protocol)
             return False
 
+        def resolves(self, other: "BaseType[Any]") -> bool:
+            if isinstance(other, ProtocolType):
+                return issubclass(other._protocol, self._protocol)
+            if isinstance(other, ClassType):
+                return issubclass(other.type, self._protocol)
+            return False
+
         def accepts_resolved_object(self, obj: object) -> bool:
             return isinstance(obj, self._protocol)
 
-        def iterate_terminal_types(self) -> Iterable["BaseType[Any]"]:
+        def iterate_terminal_resolvable_types(self) -> Iterable["BaseType[Any]"]:
             return (self,)
 
         def resolve_single_instance(self, resolver: IInstanceResolver) -> Any:
@@ -439,9 +478,9 @@ else:
 
 
 def intersects(t1: BaseType[Any], t2: BaseType[Any]) -> bool:
-    for terminal1 in t1.iterate_terminal_types():
-        for terminal2 in t2.iterate_terminal_types():
-            if terminal1.contains(terminal2) or terminal2.contains(terminal1):
+    for terminal1 in t1.iterate_terminal_resolvable_types():
+        for terminal2 in t2.iterate_terminal_resolvable_types():
+            if terminal1.resolves(terminal2) or terminal2.resolves(terminal1):
                 return True
     return False
 

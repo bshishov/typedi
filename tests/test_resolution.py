@@ -49,7 +49,10 @@ TYPE_CONTAINS_CASES = [
     (ANY_TYPE, ClassType(A)),
     (TypeOfType(ClassType(A)), TypeOfType(ClassType(A))),
     (TypeOfType(ClassType(A)), TypeOfType(ClassType(ChildOfA))),
-    (TypeOfType(UnionType(ClassType(A), ClassType(B))), TypeOfType(ClassType(ChildOfA))),
+    (
+        TypeOfType(UnionType(ClassType(A), ClassType(B))),
+        TypeOfType(ClassType(ChildOfA)),
+    ),
     (ClassType(A), ClassType(ChildOfA)),
     (ListType(ClassType(A)), ClassType(A)),
     (ListType(ClassType(A)), ClassType(ChildOfA)),
@@ -96,7 +99,10 @@ INTERSECTS_CASES = [
     (ClassType(A), ClassType(ChildOfA)),
     (TypeOfType(ClassType(A)), TypeOfType(ClassType(A))),
     (TypeOfType(ClassType(A)), TypeOfType(ClassType(ChildOfA))),
-    (TypeOfType(UnionType(ClassType(A), ClassType(B))), TypeOfType(ClassType(ChildOfA))),
+    (
+        TypeOfType(UnionType(ClassType(A), ClassType(B))),
+        TypeOfType(ClassType(ChildOfA)),
+    ),
     (UnionType(ClassType(A), NONE_TYPE), NONE_TYPE),
     (UnionType(ClassType(A), NONE_TYPE), ClassType(A)),
     (UnionType(ClassType(A), NONE_TYPE), ClassType(ChildOfA)),
@@ -241,12 +247,12 @@ def test_type_of(obj, expected_type):
 
 @pytest.mark.parametrize("a, b", TYPE_CONTAINS_CASES)
 def test_contains(a: BaseType[tp.Any], b: BaseType[tp.Any]):
-    assert a.contains(b)
+    assert a.resolves(b)
 
 
 @pytest.mark.parametrize("a, b", TYPE_NOT_CONTAINS_CASES)
 def test_not_contains(a: BaseType[tp.Any], b: BaseType[tp.Any]):
-    assert not a.contains(b)
+    assert not a.resolves(b)
 
 
 @pytest.mark.parametrize("t", INTERSECT_SELF_CASES)
