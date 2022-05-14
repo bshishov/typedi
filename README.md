@@ -372,6 +372,12 @@ c = container.resolve(C)
 assert isinstance(c, C)
 ```
 
+## About python 3.6 and older
+`typing` module became more or less stable only after python 3.7 (including). API for types in 3.6 differs significantly from 3.7 onward.
+
+It is hard to maintain two different APIs that's why I decided to stick to the newer one. 
+However, if you feel brave enough and really need that 3.6 support you can open a PullRequest and contact me if you have any questions.
+
 ## Testing
 This project is using tox (and pytest) to test among multiple python versions. To run test suites and generate coverage reports simply execute
 ```bash
