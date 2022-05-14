@@ -60,12 +60,15 @@ container.register_instance(ConcreteService())
 # Container will inspect the signature of __init__.  
 container.register_class(App)  
 
-# First, container tries to specify dependencies of App.
-# so Service() is created. Then, App is constructed with all required args.
+# First, container tries to specify dependencies of App:
+#   * The container looks up registered providers for anything that matches AbstractService.
+#   * There is an instance of ConcreteService which matches AbstractService, so it is a match.
+# Then instance of App is created with a ConcreteService instance value for `service` argument. 
 application = container.resolve(App)
 ```
 
-This example is unrealistically simple. But highlights the fundamental idea of specifying and resolving dependencies from type signatures.
+This example is unrealistically simple. 
+But it highlights the fundamental idea of specifying and resolving dependencies from type signatures.
 
 Here is more complex example highlighting some more features:
 ```python
@@ -91,7 +94,7 @@ class SubtractOperation:   # Note: not even subclassing
         return a - b
     
 
-@dataclass  # dataclasses (or even attrs) works
+@dataclass  # dataclasses (or even attrs) are supported
 class App:
     # Require instances that support MathOperation Protocol     
     operations: List[MathOperation]
@@ -115,7 +118,7 @@ container = Container()
 container.register_singleton_class(SumOperation)
 container.register_singleton_class(SubtractOperation)
 
-# Registering App so that container will understand its dependencies
+# Registering App so that container will understand its dependencies.
 container.register_class(App)
 
 # Resolution happens here.
