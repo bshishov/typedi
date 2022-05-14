@@ -212,7 +212,9 @@ class UnionType(Generic[T], BaseType[T]):
     def contains(self, other: "BaseType[Any]") -> bool:
         if isinstance(other, UnionType):
             # TODO: Implement
-            raise NotImplementedError("Union vs Union subtype check is not implemented yet")
+            raise NotImplementedError(
+                "Union vs Union subtype check is not implemented yet"
+            )
         return any(t.contains(other) for t in self.types)
 
     def resolves(self, other: "BaseType[Any]") -> bool:
@@ -564,4 +566,10 @@ def type_of(obj: object) -> BaseType[Any]:
             return ListType(one_type)
         return ListType(UnionType(*types))
 
-    return as_type(type(obj))
+    if t is type:
+        return TypeOfType(as_type(obj))
+
+    if get_origin(obj) is not None:
+        return TypeOfType(as_type(obj))
+
+    return as_type(t)

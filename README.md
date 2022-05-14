@@ -57,11 +57,11 @@ container = Container()  # creating a DI container
 container.register_instance(ConcreteService())
 
 # Registering App class.
-# Container will internally look at the signature of __init__  
+# Container will inspect the signature of __init__.  
 container.register_class(App)  
 
-# First, container tries to specify dependencies of App
-# so Service() is created. Then, App is constructed will all args
+# First, container tries to specify dependencies of App.
+# so Service() is created. Then, App is constructed with all required args.
 application = container.resolve(App)
 ```
 
@@ -81,12 +81,12 @@ class MathOperation(Protocol):
         ...
     
 
-class SumOperation:   # Note: we are not even subclassing
+class SumOperation:   # Note: not even subclassing
     def apply(self, a: int, b: int) -> int:
         return a + b
     
 
-class SubtractOperation:   # Note: we are not even subclassing
+class SubtractOperation:   # Note: not even subclassing
     def apply(self, a: int, b: int) -> int:
         return a - b
     
@@ -191,7 +191,7 @@ Here is the list of things recognised by the Container. This means that you can 
 | `fn(...) -> Type[T]`          | factory of generic meta type of `T`.                                             |
 * `A` is any concrete class type.
 * `T` - any supported type including concrete classes, or generics `Optional[T]`, `Union[T1, T2]`, `Iterable[T]`, `List[T]` and `Tuple[T1, ..., TN]`. Which means you can go crazy and return something like `-> Iterable[Optional[List[Union[A, B]]]]`. Container will deal with it.
-* `...` - is any valid annotated signature with 0 or more arguments with definitions:  
+* `...` - is valid annotated signature with 0 or more arguments with definitions, for example:  
   * `arg: T` - argument of some specific type `T`. If container is not able to resolve `T` it will raise `ResolutionError`.
   * `arg: Optional[T]` - if container will fail to resolve `T`, `None` value will be used. 
   * `*args: T` - varargs will be resolved as `Tuple[T]`. If it is not possible to resolve `T` - empty `tuple()` will be passed. 
@@ -222,14 +222,13 @@ A(a: A)
 
 These could also be used as factories:
 * `functlools.partial` of any typed callable
-* `Callable` classes
+* Custom callable classes (with annotated `__call__`)
 * `@dataclass`, `@attrs`
 
 Not supported return annotations:
 * `Final`
 * `Literal`
 * `Annotated`
-
 * generic annotations with `TypeVar`
 
 ### Supported resolution type queries
@@ -240,157 +239,40 @@ Not supported return annotations:
 | `Union[T1,...,Tn]` | Tries resolution of each type argument left to right, if nothing resolves raises `ResolutionError`                                     |
 | `List[T]`          | Resolves all instances of `T` and returns a list. If none of `T` availble, provides empty list.                                        |
 | `Iterable[T]`      | Resolves all instances of `T` into an iterable. If non of `T` available, provides empty iterable.                                      |
-| `Tuple[T1,...,Tn]` | First, tries to resolve an instance of `Tuple[T1,...,Tn]` as is. If it is not available provides instances of `T1` to `Tn` as a tuple. |   
+| `Tuple[T1,...,Tn]` | First, tries to resolve an instance of `Tuple[T1,...,Tn]` as is. If it is not available provides instances of `T1` to `Tn` as a tuple. |
 
+`typedi` also resolves covariant types and even covariant generics like `List`, `Tuple`, `Iterable` and even higher order `Type[T]`.
 
-
-## Examples
-### Application with dependency
-
-```python
-# app.py
-class BaseApiClient:
-    def get_data(self):
-        raise NotImplementedError
-  
-
-class RealApiClient(BaseApiClient):
-    def __init__(self, key: str, timeout: float):
-        self.key = key
-        self.timeout = timeout
-        
-    def get_data(self):
-        print(f"Calling api with {self.key}")
-
-        
-class Service:
-    def __init__(self, api_client: BaseApiClient):  # note, a base class is used
-        self.api_client = api_client                
-
-        
-class Application:
-    def __init__(self, service: Service):
-        self.service = service
-        
-    def run(self):
-        pass
-
-
-if __name__ == '__main__':
-    from typedi import Container
-    
-    container = Container()
-    container.register_instance(RealApiClient(key="somekey", timeout=5.0))
-    container.register_class(Service)
-    container.register_class(Application)    
-    
-    # Resolves application instance and all its dependencies
-    # Container will recognize that Application need Service which needs BaseApiClient
-    # There is a RealApiClient that matches `BaseApiClient` query.
-    # So a Service with RealApiClient is constructed.
-    app = container.resolve(Application)
-    
-    app.run()
-
-# test_app.py
-
-class FakeApiClient(BaseApiClient):
-    def get_data(self):
-        print("Getting test data")
-        return {"test": 123}
-    
-
-def test_app():
-    container = Container()
-    container.register_instance(FakeApiClient())
-    container.register_class(Service)
-    container.register_class(Application)
-    
-    # Resolves application instance and all its dependencies
-    # FakeApiClient will be used instead of RealApiClient
-    app = container.resolve(Application)
-    
-    app.run()  
-    # todo: assert something
-
-```
-
-### Containers
-
-You can create your own container DI container that will store instances/factories you provide:
+Covariance example:
 
 ```python
-from typedi import Container
-
-container = Container()
-```
-
-typedi does not come with a shared container since not to encourage the use of global state. In fact, you should take care of sharing container across modules if you want to implement service-locator pattern.
-
-### Instance bindings, "user-managed singletons"
-
-Containers could act as a simple key-value storage for instances where the key is actually a type of that instance, you register an instance first, then ask for a type to get the instance.
-
-```python
-from typedi import Container
+from typing import List
 
 
-class MyClass:
+class Base:
     pass
 
 
-instance = MyClass()
-container = Container()
-container.register_instance(instance)
-instance2 = container.resolve(MyClass)
-```
+class Concrete(Base):
+    pass
 
-### Class bindings
 
-Note that instead of registering an actual instance you could register a class acting as a factory of instances.
-Then when an instance is requested, a class would be instantiated (with all init args resolved) and returned.
-
-```python
 from typedi import Container
-
-
-class MyClass:
-    pass
-
-
-container = Container()
-container.register_class(MyClass)
-instance = container.resolve(MyClass)
-```
-
-### Class bindings with inheritance
-
-The main strength of DI containers is ability to decouple dependencies by sharing common interface while user of an object does not care about actual implementation.
-
-```python
-from typedi import Container
-
-
-class SomeBaseClass:
-    pass
-
-
-class MyClass(SomeBaseClass):
-    pass
-
-
 container = Container()
 
-# here we register MyClass as a class binding
-# It is factory of both MyClass objects and SomeBaseClass objects (using MRO)
-container.register_class(MyClass)
+# Registering concrete instances
+container.register_instance(Concrete())
+container.register_instance(Concrete())
 
-# Note that we ask for a base class but container will actually instantiate a MyClass object
-# since container knows the base classes of MyClass
-instance = container.resolve(SomeBaseClass)  # type: MyClass
+# Query all instances that are instance of Base
+concrete_instances = container.resolve(List[Base])
+
+assert isinstance(concrete_instances[0], Concrete)
+assert isinstance(concrete_instances[1], Concrete)
 ```
 
-### Features
+
+## Features
 
 typedi also has support of various features:
 
@@ -400,8 +282,95 @@ typedi also has support of various features:
 
 If you want to learn more, please refer to typedi_tests and actual implementation since it is quite self-describing :)
 
+
+## Circular dependencies
+`typedi` can handle circular dependencies solving "chicken and egg" problem:
+
+```python
+class A:
+    def __init__(self, b: "B"):
+        self.b = b
+
+class B:
+    def __init__(self, a: A):
+        self.a = a
+
+from typedi import Container
+container = Container()
+
+# Register both classes
+container.register_class(A)
+container.register_class(B)
+
+a = container.resolve(A)
+assert isinstance(a, A)
+assert isinstance(a.b, B)
+
+# Circular dependency
+assert isinstance(a.b.a, A)
+assert a.b.a == a 
+
+assert a.b.a is not a  # NOTE: a.b.a is a proxy of a, not the exact instance
+```
+
+This code actually works. 
+It is done internally by constructing a proxy object when encountering circular dependency during resolution.
+The proxy is completely identical to the original. You can use proxies in the same way as the original objects.
+
+Proxy objects are used only to resolve a circular dependency. All non-circular dependencies would resolve in original, genuine objects. 
+
+The only restriction is that it is impossible to access the proxied circular dependencies inside the factory method (or `__init__`) itself. This code will raise an error during resolution:
+
+```python
+...
+
+class B:
+    def __init__(self, a: A):            
+        print(a)  # access to method __str__ of not-yet initialized proxy instance of A        
+        self.a = a
+
+...
+```
+
+## Performance considerations
+
+As you might have guessed already, there is a lot of introspection, reflection, `type(...)` and `isinstance(...)` going on under the hood when registering and resolving.
+I do not recommend using `Container` methods in your runtime hot paths since `.resolve()` call is quite expensive and might affect performance.
+Use it to assemble things on startup and throw the `Container` away.
+
+`Container` tries its best to reduce unnecessary calls to factories. 
+However, if return annotation of a provider is not strict enough (`Union`, or `Any`) in order to resolve some instance of that factory
+there is no other way other than call it and just go through all the options and check if it does match the query.
+Resolution complexity aligns in a way: `ConcreteType < Union[ConcreteTypeA, ConcreteTypeB] < Any`.
+
+Another costly part is generators, if you have a generator that produces instance of types `A`, `B` and then `C`, 
+resolving a `C` would also result in instantiating `A` and `B`:
+
+```python
+from typing import Union, Iterable
+
+class A: ...
+class B: ...
+class C: ...
+
+def generator() -> Iterable[Union[A, B, C]]:
+    yield A()  # wasted call
+    yield B()  # wasted call
+    yield C()
+    yield A()  # also wasted call because container caches an entire result of a factory
+    
+from typedi import Container
+container = Container()
+container.register_factory(generator)
+
+# generator would be called, and container will go through all generated instances 
+# and check isinstance(item, C), once found, instance of C will be returned
+c = container.resolve(C)
+assert isinstance(c, C)
+```
+
 ## Testing
-We are using tox (and pytest) to test among multiple python versions. To run test suites and generate coverage reports simply execute
+This project is using tox (and pytest) to test among multiple python versions. To run test suites and generate coverage reports simply execute
 ```bash
 tox
 ```

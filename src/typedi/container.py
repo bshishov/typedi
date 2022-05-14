@@ -118,40 +118,100 @@ class Container:
         self.register_instance(self)
 
     def register_instance(self, instance: object) -> None:
+        """Register a concrete instance into the container.
+
+        Container automatically infers the type of the instance
+        and provides this exact instance when its type is requested.
+
+        You can register multiple instances of the same type.
+
+        :param instance: Instance to register.
+        """
         self._storage.add_provider(ConstInstanceProvider(instance))
 
     def register_factory(self, factory: Callable[..., Any]) -> None:
+        """Register a type-annotated callable that returns (or generates) instance(s) when called.
+
+        Container inspects type signature of the factory.
+        When the return type is requested, the container will:
+         1. resolve all arguments by querying itself with arguments type annotation.
+         2. call the factory with resolved arguments and return an instance.
+
+        You can register basically any callable that returns something, i.e.:
+            functions, methods, classmethods, classes, generators, functools.partial
+
+        For argument annotations anything that :func:`resolve` supports is valid.
+
+        The factory is guaranteed to be called at most once per single resolve call.
+
+        :param factory: Type-annotated callable that returns (or generates) instance(s)
+        :raises TypeError: When arguments or return type are not annotated or annotated with unsupported types.
+        """
         self._storage.add_provider(FactoryInstanceProvider(factory))
 
     def register_class(self, cls: type) -> None:
+        """Registers a class as a factory of instances of this class.
+
+        Classes are callable factories of objects.
+        See :func:`register_factory` for more info.
+
+        :param cls: Class to register.
+        :raises TypeError: When arguments are missing type annotations or annotated with unsupported types.
+        """
         self.register_factory(cls)
 
     def register_singleton_factory(self, factory: Callable[..., Any]) -> None:
+        """Register a type-annotated callable that returns (or generates) instance(s) when called first time.
+
+        Behaves the same way as :func:`register_factory`,
+        but when it is called for the first time, the return of the factory is cached.
+        Making the factory a lazy singleton.
+
+        :param factory: Type-annotated callable that returns (or generates) instance(s).
+        :raises TypeError: When arguments or return types are not annotated or annotated with unsupported types.
+        """
         self._storage.add_provider(
             SingletonInstanceProvider(FactoryInstanceProvider(factory))
         )
 
     def register_singleton_class(self, cls: type) -> None:
+        """Registers a class as a singleton-factory of instances of this class.
+
+        Classes are callable factories of objects.
+        See :func:`register_singleton_factory` for more info.
+
+        :param cls: Class to register.
+        :raises TypeError: When arguments are missing type annotations or annotated with unsupported types.
+        """
         self.register_singleton_factory(cls)
 
     def resolve(self, query: Type[T]) -> T:
-        """Resolves instance (or collection of instances) of specified query.
+        """Resolves instance(s) of specified query.
+
+        The container will look up all the registered providers (factories and instances)
+        that are able to produce the queried type.
+        For each suitable provider container will ask it to provide an instance and then
+        check if it matches the query.
+
+        Container is able to resolve covariant types, understands Protocols and inheritance.
+
+        If there is multiple instances of the queried type, last registered instance is returned.
 
         Examples:
 
             resolve(A)
                 Will find the latest registered instance of type A
-                or raise ResolutionError if resolution is not possible
+                or raise ResolutionError if resolution is not possible.
 
             resolve(Union[A, B])
                 Will find instance of either type A or B
                 (resolution performs left to right)
-                or raise ResolutionError if resolution is not possible
+                or raise ResolutionError if resolution is not possible.
 
             resolve(Optional[A])
-                Same as resolve(Union[A, None])
+                Same as resolve(Union[A, None]).
                 Will try to find the latest registered instance of type A
-                or return None (a valid instance of type(None))
+                or return None (a valid instance of type(None)).
 
             resolve(List[A])
                 Will resolve into a list by performing resolution of A.
@@ -161,24 +221,54 @@ class Container:
                 Will resolve into an iterator by performing resolution of A.
                 If there are no instances of A returns an empty iterable.
 
-        :param: query: Query to resolve.
-        :raises: ResolutionError: When container is unable to resolve the query
-        :returns: Resolved instance or collection
+        :param query: A query to resolve
+        :raises ResolutionError: When container is unable to resolve the query.
+        :returns: Resolved instance or collection.
         """
-        meta_type = as_type(query)
-        return meta_type.resolve_single_instance(InstanceResolver(self._storage))
+        type_resolver = as_type(query)
+        return type_resolver.resolve_single_instance(InstanceResolver(self._storage))
 
     def get_all_instances(self, query: Type[T]) -> List[T]:
-        meta_type = as_type(query)
+        """Returns a list of all instances of queried type.
+
+        Behaves the same way as `resolve(List[T])`
+        See :func:`resolve` for more details.
+
+        If it is not possible to resolve any instances of T, an empty list is returned.
+
+        :param query: Type query.
+        :return: List of all resolved instances matching query.
+        """
+        type_resolver = as_type(query)
         return list(
-            meta_type.iterate_resolved_instances(InstanceResolver(self._storage))
+            type_resolver.iterate_resolved_instances(InstanceResolver(self._storage))
         )
 
     def iter_all_instances(self, query: Type[T]) -> Iterable[T]:
-        meta_type = as_type(query)
-        return meta_type.iterate_resolved_instances(InstanceResolver(self._storage))
+        """Returns an iterator of all instances of queried type.
+
+        Behaves the same way as `resolve(Iterable[T])`
+        See :func:`resolve` for more details.
+
+        If it is not possible to resolve any instances of T, an empty iterable is returned.
+
+        :param query: Type query.
+        :raises ResolutionError: When container is unable to resolve the query.
+        :return: Iterable of all resolved instances matching query.
+        """
+        type_resolver = as_type(query)
+        return type_resolver.iterate_resolved_instances(InstanceResolver(self._storage))
 
     def get_instance(self, query: Type[T]) -> T:
+        """Resolves an instance that matches query.
+
+        Method is deprecated and is here for backwards compatibility with older versions.
+        Use :func:`resolve` instead
+
+        :param query: Type query
+        :raises ResolutionError: When container is unable to resolve the query.
+        :return: Instance, matching query
+        """
         warnings.warn(
             ".get_instance() method is deprecated, use .resolve() instead",
             DeprecationWarning,

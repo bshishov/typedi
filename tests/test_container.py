@@ -167,17 +167,6 @@ def test_singleton_class(container: Container):
     assert instance1 is instance2
 
 
-def test_factory_of_generic(container: Container):
-    class A:
-        pass
-
-    def factory() -> Type[A]:
-        return A
-
-    container.register_factory(factory)
-    assert container.resolve(Type[A]) == A
-
-
 def test_factory_of_weird_type(container: Container):
     class A:
         pass
@@ -744,6 +733,60 @@ def test_factory_of_any_generator(container: Container):
 
 
 # endregion: Any
+
+# region: Type
+
+
+def test_factory_of_type(container: Container):
+    class A:
+        pass
+
+    def factory() -> Type[A]:
+        return A
+
+    container.register_factory(factory)
+    assert container.resolve(Type[A]) == A
+
+
+def test_factory_of_child_type(container: Container):
+    class A:
+        pass
+
+    class ChildOfA(A):
+        pass
+
+    def factory() -> Type[ChildOfA]:
+        return ChildOfA
+
+    container.register_factory(factory)
+    assert container.resolve(Type[A]) == ChildOfA
+
+
+def test_generator_of_any_type(container: Container):
+    class A:
+        pass
+
+    class ChildOfA(A):
+        pass
+
+    class B:
+        pass
+
+    def factory() -> Type[Any]:
+        yield ChildOfA
+        yield B
+
+    container.register_factory(factory)
+
+    assert container.resolve(Type[A]) == ChildOfA
+    assert container.resolve(Type[ChildOfA]) == ChildOfA
+    assert container.resolve(Type[B]) == B
+
+    assert container.get_all_instances(Type[Any]) == [ChildOfA, B]
+    assert container.get_all_instances(Type[A]) == [ChildOfA]
+
+
+# endregion
 
 # region: Recursion
 
